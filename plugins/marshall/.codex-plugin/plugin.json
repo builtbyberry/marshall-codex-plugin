@@ -1,0 +1,40 @@
+{
+    "name": "marshall",
+    "version": "1.10.0",
+    "description": "Release coordination for AI coding agents, backed by the hosted Marshall store. Connects the Marshall MCP server so claims, drift, and startability live in one shared store — the same across machines, people, and agents — instead of repo-local JSON.",
+    "author": {
+        "name": "Daniel Berry",
+        "email": "danielberrytn@gmail.com"
+    },
+    "homepage": "https://github.com/builtbyberry/marshall-codex-plugin",
+    "repository": "https://github.com/builtbyberry/marshall-codex-plugin",
+    "license": "MIT",
+    "keywords": [
+        "marshall",
+        "release",
+        "orchestration",
+        "codex",
+        "mcp"
+    ],
+    "skills": "./skills/",
+    "mcpServers": "./.mcp.json",
+    "hooks": "./hooks/hooks.json",
+    "interface": {
+        "displayName": "Marshall (Codex)",
+        "shortDescription": "Release coordination for AI coding agents.",
+        "longDescription": "Marshall lifts release-planning state out of repo-local JSON into a hosted shared store — claims, drift, startability, and the guided release loops, the same across machines, people, and agents. Fourteen release skills drive the Marshall MCP tools from Codex.",
+        "developerName": "Daniel Berry",
+        "category": "Productivity",
+        "capabilities": [
+            "Read",
+            "Write"
+        ],
+        "websiteURL": "https://releasemarshall.com",
+        "brandColor": "#FF4E14",
+        "defaultPrompt": [
+            "What release work is startable right now?",
+            "Show who holds what and what drifted.",
+            "Start the next component."
+        ]
+    }
+}

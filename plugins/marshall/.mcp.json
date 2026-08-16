@@ -1,0 +1,38 @@
+{
+    "mcpServers": {
+        "marshall": {
+            "type": "http",
+            "url": "https://releasemarshall.com/mcp",
+            "default_tools_approval_mode": "approve",
+            "tools": {
+                "release_get": {
+                    "approval_mode": "auto"
+                },
+                "release_next": {
+                    "approval_mode": "auto"
+                },
+                "release_status": {
+                    "approval_mode": "auto"
+                },
+                "release_changelog": {
+                    "approval_mode": "auto"
+                },
+                "project_list": {
+                    "approval_mode": "auto"
+                },
+                "my_claims": {
+                    "approval_mode": "auto"
+                },
+                "dispatch_get": {
+                    "approval_mode": "auto"
+                },
+                "lenses_get": {
+                    "approval_mode": "auto"
+                },
+                "lenses_applicable": {
+                    "approval_mode": "auto"
+                }
+            }
+        }
+    }
+}
