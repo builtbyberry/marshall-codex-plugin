@@ -8,15 +8,16 @@ Codex client for the same store the Claude plugin serves.
 ## Connecting
 
 Installing this plugin (`codex plugin add marshall@marshall`) connects the
-hosted Marshall MCP server declared in `.mcp.json`. Without
-`MARSHALL_MCP_TOKEN`, auth is **OAuth 2.1** (authorization-code + PKCE, Dynamic
+hosted Marshall MCP server declared in `.mcp.json` using **OAuth 2.1**
+(authorization-code + PKCE, Dynamic
 Client Registration): the client self-registers, you approve the connection in
 your browser and pick the workspace it may operate in.
 
-For a browserless runner, set a scoped Passport bearer in
-`MARSHALL_MCP_TOKEN` before installing. The same plugin server sources it through
-`bearer_token_env_var`; no browser login or second unguarded MCP server is needed.
-See the install/CI guide for provisioning, workspace grants, rotation, and revocation.
+The interactive plugin deliberately omits `bearer_token_env_var`. Current Codex
+versions select bearer mode whenever that field is configured, even when the named
+environment variable is absent, which suppresses OAuth and leaves the server with no
+tools. See the install/CI guide for the current separate browserless path and for
+credential provisioning, workspace grants, rotation, and revocation.
 
 The plugin holds **every mutating MCP tool for approval** and pre-approves only the
 read-only tools — a fail-safe posture, because Codex's OS sandbox does not gate
