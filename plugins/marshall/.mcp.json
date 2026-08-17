@@ -3,7 +3,6 @@
         "marshall": {
             "type": "http",
             "url": "https://releasemarshall.com/mcp",
-            "bearer_token_env_var": "MARSHALL_MCP_TOKEN",
             "default_tools_approval_mode": "prompt",
             "tools": {
                 "release_get": {
