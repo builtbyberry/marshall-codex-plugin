@@ -14,7 +14,7 @@ posture that gates every mutation.
 
 ```
 codex plugin marketplace add builtbyberry/marshall-codex-plugin
-codex plugin install marshall@marshall
+codex plugin add marshall@marshall
 ```
 
 Installing connects the hosted Marshall MCP server over OAuth: the client

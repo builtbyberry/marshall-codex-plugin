@@ -5,21 +5,26 @@ store: claims, drift, and startability live in one shared store — the same
 across machines, people, and agents — instead of repo-local JSON. This is the
 Codex client for the same store the Claude plugin serves.
 
-## Connecting (no config to set)
+## Connecting
 
-Installing this plugin (`codex plugin install marshall@marshall`) connects the
-hosted Marshall MCP server declared in `.mcp.json`. Auth is **OAuth 2.1**
-(authorization-code + PKCE, Dynamic Client Registration): the client
-self-registers, you approve the connection in your browser and pick the
-workspace it may operate in — no token to paste or store.
+Installing this plugin (`codex plugin add marshall@marshall`) connects the
+hosted Marshall MCP server declared in `.mcp.json`. Without
+`MARSHALL_MCP_TOKEN`, auth is **OAuth 2.1** (authorization-code + PKCE, Dynamic
+Client Registration): the client self-registers, you approve the connection in
+your browser and pick the workspace it may operate in.
 
-The plugin holds **every mutating MCP tool for approval** and opens only the
-read-only tools to auto — a fail-safe posture, because Codex's OS sandbox does
-not gate MCP calls. The `.mcp.json` sets `default_tools_approval_mode = approve`
+For a browserless runner, set a scoped Passport bearer in
+`MARSHALL_MCP_TOKEN` before installing. The same plugin server sources it through
+`bearer_token_env_var`; no browser login or second unguarded MCP server is needed.
+See the install/CI guide for provisioning, workspace grants, rotation, and revocation.
+
+The plugin holds **every mutating MCP tool for approval** and pre-approves only the
+read-only tools — a fail-safe posture, because Codex's OS sandbox does not gate
+MCP calls. The `.mcp.json` sets `default_tools_approval_mode = prompt`
 and lists exactly the nine reads (`release_get`, `release_next`, `release_status`,
 `release_changelog`, `project_list`, `my_claims`, `dispatch_get`, `lenses_get`,
-`lenses_applicable`) as `auto`; every other tool — every create, state move,
-deploy/ship step, archive/delete, and any tool added later — inherits `approve`.
+`lenses_applicable`) as `approve`; every other tool — every create, state move,
+deploy/ship step, archive/delete, and any tool added later — inherits `prompt`.
 
 ## What's in here
 
@@ -28,7 +33,7 @@ deploy/ship step, archive/delete, and any tool added later — inherits `approve
 | `.codex-plugin/plugin.json` | Plugin manifest — points at skills, `.mcp.json`, hooks |
 | `.mcp.json` | The hosted Marshall MCP endpoint + per-tool approval posture |
 | `skills/<skill>/SKILL.md` | The release skill's instructions |
-| `hooks/hooks.json` + `hooks/session-start.sh` | SessionStart readiness ping (silent unless the repo opts in) |
+| `hooks/hooks.json` + `hooks/session-start.sh` | SessionStart repo opt-in context (silent unless the repo opts in) |
 
 The `marshall` CLI (`@builtbyberry/marshall-cli`) is a separate, agent-agnostic
 path for humans, CI, and hooks. It is not required to use this plugin.

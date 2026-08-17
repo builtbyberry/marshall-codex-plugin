@@ -3,34 +3,35 @@
         "marshall": {
             "type": "http",
             "url": "https://releasemarshall.com/mcp",
-            "default_tools_approval_mode": "approve",
+            "bearer_token_env_var": "MARSHALL_MCP_TOKEN",
+            "default_tools_approval_mode": "prompt",
             "tools": {
                 "release_get": {
-                    "approval_mode": "auto"
+                    "approval_mode": "approve"
                 },
                 "release_next": {
-                    "approval_mode": "auto"
+                    "approval_mode": "approve"
                 },
                 "release_status": {
-                    "approval_mode": "auto"
+                    "approval_mode": "approve"
                 },
                 "release_changelog": {
-                    "approval_mode": "auto"
+                    "approval_mode": "approve"
                 },
                 "project_list": {
-                    "approval_mode": "auto"
+                    "approval_mode": "approve"
                 },
                 "my_claims": {
-                    "approval_mode": "auto"
+                    "approval_mode": "approve"
                 },
                 "dispatch_get": {
-                    "approval_mode": "auto"
+                    "approval_mode": "approve"
                 },
                 "lenses_get": {
-                    "approval_mode": "auto"
+                    "approval_mode": "approve"
                 },
                 "lenses_applicable": {
-                    "approval_mode": "auto"
+                    "approval_mode": "approve"
                 }
             }
         }
