@@ -38,6 +38,11 @@ sit side by side — the run never duplicates drift or re-implements the lock.
   dispatch_member ULID — **not** the component id). One call per meaningful checkpoint.
   `merged` is the only terminal status; `failed` records that one **attempt** ended and
   can be retried to any forward status (see **Resume**).
+- `mcp__marshall__dispatch_report_fenced_v1` — the versioned, claim-and-fence-required
+  counterpart used by supervised execution harnesses. An older Marshall revision
+  does not know this name and therefore refuses the call instead of silently
+  downgrading it to an unfenced progress write. Interactive skill calls continue to
+  use `dispatch_report`; do not substitute this tool without an exact live claim.
 - `mcp__marshall__dispatch_reports` — the **batch** counterpart, and the
   orchestrator's default when it is moving **several members at once**. One transaction
   for the whole wave instead of a round trip per member. Members may belong to different
