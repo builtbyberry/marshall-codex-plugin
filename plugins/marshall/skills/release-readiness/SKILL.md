@@ -19,7 +19,7 @@ same lens mechanics and verdict rubric, but findings are durable store rows
 Lens config, the store lifecycle, the lens fan-out and synthesis (steps 4 & 5), the
 severity gate, the verdict rubric, the output format, the post-review actions, and the
 guardrails are shared with `$change-review` and live once in
-**`../_shared/references/review-protocol.md`**. **Read it — it carries the steps this
+**`../../references/review-protocol.md`**. **Read it — it carries the steps this
 file does not repeat.** It is written against parameters; this skill binds them:
 
 | Token | release-readiness |
@@ -124,7 +124,7 @@ files the lenses care about. Know what changed before forming a view.
 
 ### Steps 4 & 5 — Run the lenses, then synthesise
 
-Follow **`../_shared/references/review-protocol.md` → "Running the lenses"**: one
+Follow **`../../references/review-protocol.md` → "Running the lenses"**: one
 subagent per **applicable** lens (the `applicable` set from Step 3, not the raw
 selection) dispatched in a single message, each returning structured candidate findings
 (never recording them itself), then one cross-lens synthesis pass using each lens's
