@@ -41,10 +41,12 @@ Changing what either of those skills does is **out of scope** (see Guardrails).
   alive on a structural cadence: beat it **at each step boundary**, and again
   **immediately before a long-running operation** (Step 4 build, Step 6's full test /
   PHPStan run, Step 7's change-review fan-out) — a cadence tied to the work, not a
-  timer to remember. A `lease_lost` is a stop — recover through
-  `$release-topic` and re-claim before continuing.
+  timer to remember. Every beat passes the three location fields —
+  `{ component, agent: "codex", machine, worktree }`, determined as
+  `$release-topic`'s **Reporting where you work** says. A `lease_lost` is a
+  stop — run release-topic's **Taking the claim** rule before continuing.
 - `mcp__marshall__set_component_state` — move the work-state:
-  `in_progress` (Step 1) → `proposed` (PR open, Step 9) → `merged` (landed, Step 9).
+  `in_progress` (Step 1, only from `open`) → `proposed` (PR open, Step 9) → `merged` (landed, Step 9).
   Marking it `merged` is what unblocks dependents; releasing the claim alone does not.
 - `mcp__marshall__record_findings` — **only** to record an out-of-scope
   problem against the release: pass it with **`component_id` omitted** (that omission
@@ -183,12 +185,24 @@ whole loop is **resumable from the store + git** (see Step 0) — never from mem
 - Resolve the component (an explicit ref → the active Marshall claim → the current
   branch name). On resume, **two present signals that disagree is a STOP** — the diff
   under review and the finding scope would refer to different components.
+- **On a resume or land-only entry only** — a part already in progress — confirm
+  you still hold it **before deriving anything**. First run
+  `$release-topic`'s **reuse rule** checks (its stops come before any
+  claim), then its **Taking the claim** rule: it finds a hold you still own through
+  `my_claims` and never re-claims it, re-claims a lapsed part, and stops on a part
+  someone else holds or that was revoked.
+  Never derive a resume point on a part you do not hold.
+  A **full** run skips this bullet — Step 1 takes the claim.
 - `release_get` and read the component's `notes` — the **plan of record**. Its GOAL,
   acceptance criteria, and out-of-scope are the contract this run delivers against;
   its `touches` names the files.
 - Derive the resume point from observable state, and **re-run the covering gate on
   ambiguity** — the plan and the two gates leave no store footprint, so re-running
   them is how resume stays honest, and each is safe to repeat:
+  - **the part is not yet claimed** (still `open`, nobody holds it) → start at
+    **Step 1**, even when its topic branch or worktree already exists — the
+    Workspace app may have created them and opened this terminal inside. Step 1's
+    reuse rule picks up that checkout; the ladder below applies once you hold it.
   - **no topic branch** → start at Step 1.
   - **branch exists, no commits** → the plan lived only in memory and is gone;
     re-run **Steps 2–3** (rebuild the plan, then pressure-test it) before Step 4.
@@ -209,9 +223,14 @@ whole loop is **resumable from the store + git** (see Step 0) — never from mem
   an explicit operator instruction overrides it.
 
 ### Step 1 — Claim + branch  *(composes `$release-topic`)*
-Confirm startable, `claim_component`, handle `claim_conflict` / `not_startable` as
-hard stops, `set_component_state in_progress`, cut the topic branch. Delegated
-wholesale — no claim logic is restated here. Beat the claim at each step boundary
+Run `$release-topic`'s procedure: confirm startable, the **reuse rule**
+checks (their stops come before any claim), then its **Taking the claim** rule —
+which never calls `claim_component` on a part you already hold, so a resume that
+confirmed the hold at Step 0 does not claim again. Handle `claim_conflict` /
+`not_startable` as hard stops. Set `in_progress` **only when the part is `open`** —
+skip it when the part is already `in_progress` (`in_progress` → `in_progress` is
+an `invalid_transition`). Then reuse, attach, or create the topic branch as the
+reuse rule picked. Delegated wholesale — no claim logic is restated here. Beat the claim at each step boundary
 through the loop below (see the `heartbeat_claim` note above).
 
 ### Step 2 — Plan the component
@@ -236,7 +255,7 @@ Implement to the surviving plan and the acceptance criteria — **no more.** Do 
 invent acceptance criteria; an out-of-scope problem you notice is recorded against
 the release (Step 6), not folded in. Beat the claim on entering this step, and again
 immediately before a long-running operation (the full test / PHPStan run in Step 6);
-a `lease_lost` is a stop → recover via `$release-topic` and re-claim.
+a `lease_lost` is a stop → run `$release-topic`'s **Taking the claim** rule.
 
 ### Step 5 — Prove the tests can fail  *(gate — a guard you haven't watched fail is not proven)*
 For each new or changed guard: **mutate the source it protects, watch the test go
@@ -325,10 +344,14 @@ can be fixed inside the acceptance criteria.
 - **Resume from the store + git, never conversation memory.** Re-derive the step and
   re-run the covering gate on ambiguity.
 - **The claim is the source of truth, not the branch.** Beat an explicit claim at
-  each step boundary and before a long-running operation. A lost claim *id* is a
-  lookup, never a re-claim (`my_claims`); a genuinely *lapsed* lease is a deliberate
-  re-claim — the fence bumps, which is expected — after checking nobody else took the
-  work.
+  each step boundary and before a long-running operation, with `agent`, `machine`,
+  and `worktree` on every beat. A lost claim *id* is a lookup, never a re-claim
+  (`my_claims`); a genuinely *lapsed* lease is a deliberate re-claim — the fence
+  bumps, which is expected — through release-topic's **Taking the claim** rule, which
+  stops and names the holder if someone else took the work.
+- **Reuse, don't re-create.** Where the part is worked is decided by
+  `$release-topic`'s **reuse rule**, never restated here; this skill never
+  runs `git worktree add` on its own.
 - **Landing is `merged`, not just unclaiming** — releasing the lock alone leaves
   dependents blocked.
 - **Build stops at one merged component.** It never wraps, deploys, or tags — and it
