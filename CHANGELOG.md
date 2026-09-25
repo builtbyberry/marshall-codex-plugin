@@ -7,7 +7,7 @@ version is set at the source in `builtbyberry/swarm-release-manager` and rendere
 into `plugins/marshall/.codex-plugin/plugin.json`; the heading and git tag here must
 match whatever that render declares.
 
-## 1.11.0 — unreleased
+## 1.11.0 — 2026-09-25
 
 The skills say where they run, and reuse the worktree they are in.
 
