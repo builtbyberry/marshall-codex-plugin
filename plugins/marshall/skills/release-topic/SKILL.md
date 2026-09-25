@@ -167,6 +167,9 @@ recovering from `lease_lost`:
      ```
      Held by you on <hold.machine> in <hold.worktree> via <hold.agent> — another session is working it; stopping.
      ```
+     If that session is gone (its worktree deleted, its Mac elsewhere), the hold
+     frees itself when its lease lapses; to take it sooner, the operator revokes it
+     (`mcp__marshall__revoke_claim`) and you start again.
    - They match, or the hold carries no location (an older store) → do not
      re-claim (a live re-claim throws `claim_conflict` even for the same holder);
      take its `id` and beat it with the location fields.
@@ -209,10 +212,10 @@ workspace if you don't. Match the component you are working and take its `id`;
 heartbeating and releasing work normally from there — once **Taking the claim**
 step 1's location check shows the hold is this session's.
 
-If you know the component but not the claim, you can also skip the lookup:
-`heartbeat_claim { component: <component id> }` and
+If you know the component but not the claim, you can also skip the id lookup —
+but not step 1's location check: `heartbeat_claim { component: <component id> }` and
 `release_claim { component: <component id> }` both accept the component id of a
-hold you own.
+hold you own, once that check shows the hold is this session's.
 
 If `my_claims` does **not** list the component, you no longer hold it. Never
 assume a hold you cannot find is still yours — run **Taking the claim**: it
