@@ -156,9 +156,20 @@ by `-`. The main checkout is
 The same rule covers a first claim, continuing a part you worked before, and
 recovering from `lease_lost`:
 
-1. `mcp__marshall__my_claims { release }` lists the component → **you still hold it.**
-   Do not re-claim (a live re-claim throws `claim_conflict` even for the same
-   holder); take its `id` and beat it with the location fields.
+1. `mcp__marshall__my_claims { release }` lists the component → **your actor still holds
+   it** — that proves the actor, not this session. Before beating it, read
+   `mcp__marshall__release_get { release, view: "full" }` and compare the component's
+   `hold.machine` and `hold.worktree` with this session's `machine` and `worktree`
+   (as **Reporting where you work** determines them); a field missing on either
+   side is not compared.
+   - The hold names a **different machine or a different worktree** → another
+     session is working it. **Stop** — do not beat it — and print:
+     ```
+     Held by you on <hold.machine> in <hold.worktree> via <hold.agent> — another session is working it; stopping.
+     ```
+   - They match, or the hold carries no location (an older store) → do not
+     re-claim (a live re-claim throws `claim_conflict` even for the same holder);
+     take its `id` and beat it with the location fields.
 2. Otherwise read `mcp__marshall__release_get { release, view: "full" }` and check the
    component:
    - `hold` is set → **someone else holds it. Stop** and print:
@@ -195,7 +206,8 @@ mcp__marshall__my_claims { release? }
 It lists every claim **you** still hold — claim id, component, fence, machine,
 and lease — scoped to one release if you pass `release`, or across the whole
 workspace if you don't. Match the component you are working and take its `id`;
-heartbeating and releasing work normally from there.
+heartbeating and releasing work normally from there — once **Taking the claim**
+step 1's location check shows the hold is this session's.
 
 If you know the component but not the claim, you can also skip the lookup:
 `heartbeat_claim { component: <component id> }` and

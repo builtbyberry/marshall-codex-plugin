@@ -190,7 +190,8 @@ whole loop is **resumable from the store + git** (see Step 0) — never from mem
   `$release-topic`'s **reuse rule** checks (its stops come before any
   claim), then its **Taking the claim** rule: it finds a hold you still own through
   `my_claims` and never re-claims it, re-claims a lapsed part, and stops on a part
-  someone else holds or that was revoked.
+  someone else holds or that was revoked — or that your actor holds from another
+  machine or worktree (another session is working it).
   Never derive a resume point on a part you do not hold.
   A **full** run skips this bullet — Step 1 takes the claim.
 - `release_get` and read the component's `notes` — the **plan of record**. Its GOAL,
