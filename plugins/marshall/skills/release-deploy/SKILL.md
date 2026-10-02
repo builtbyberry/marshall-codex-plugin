@@ -28,6 +28,10 @@ re-shipping prod.
   `merging → dating → tagging → releasing → done`. Same one record, same readiness
   gate, same `invalid_transition` on a skipped or reversed step. See **Tag mode** below.
 
+- `mcp__marshall__release_update` — write the release's **deploy summary** when
+  the deploy is reported (Step 6, and tag mode's close-out). The release has shipped
+  by then; the store still takes it.
+
 If the MCP server isn't connected, **stop and say so** — the store's Deploy
 record is the only source of truth for where the deploy is; never drive a deploy
 from conversation memory or a local file.
@@ -77,7 +81,9 @@ On invocation, `release_get { release }` and read `deploy.step`:
   rollback decision — see **Smoke failure**).
 - `monitor` → resume the monitor window from `deploy.monitor` (compute elapsed from
   the recorded window start; do not restart the clock).
-- `done` → already shipped; report and stop.
+- `done` → already shipped; report and stop — but first, if the release's
+  `deploy_summary` is `null`, the run that reached `done` ended before writing it:
+  write it now from the deploy record (Step 6), then report.
 
 > The deploy is the one step with an irreversible external side effect. Every
 > action below is gated on `deploy.step` precisely so a resumed or re-dispatched
@@ -161,7 +167,20 @@ evidence). Do not attempt a per-check store write — it returns `invalid_transi
    the `monitor` row in place (no self-transition), so **report it and stop** — do
    not advance to `done` (the deploy didn't pass). Surface **Smoke failure**; the
    record stays at `monitor`, unshipped.
-5. **On completion with all checks passing:** tag first (Step 5), then close out
+5. **Before closing out, replay any gate outbox.** `done` makes the release
+   read-only, and a shipped release refuses gate records for good — so records a
+   build could not write must land while the release is still open. Look in
+   `$(git rev-parse --path-format=absolute --git-common-dir)/marshall/gate-outbox/`
+   for a file named after any part of this release. For each file, send each line,
+   in file order, as one `mcp__marshall__record_gate` call (a line is the call's whole
+   argument object), then read the part's `gate_records` back to see them. A line that is
+   refused is fixed and sent again on its own — never re-send a file's other lines:
+   recording is append-only and a repeat adds a duplicate. If the call fails as an
+   unknown tool, the connection predates the deploy: reconnect the Marshall MCP
+   server and try again. Do not advance to `done` with a line still unsent; move the
+   replayed files aside rather than deleting them until the monitor window has
+   closed. No file there → nothing to do.
+6. **On completion with all checks passing:** tag first (Step 5), then close out
    with `set_deploy_step { release, step: 'done', verdict: 'shipped', tag:
    'v<version>', monitor: { started_at, window_minutes, checks: [<the full
    accumulated set>], completed_at: <now> } }` — the accumulated checks and the
@@ -192,6 +211,19 @@ so the repo can answer "what was v0.21.0" on its own.
 When `deploy.step == done`: summarize merge time, deploy duration, smoke result,
 monitor checks, the production + dashboard URLs, and the operator follow-ups
 (error rate, exceptions, visual regression).
+
+**Write that summary to the release**, so it outlives this terminal:
+`mcp__marshall__release_update { release, deploy_summary: <text>, return: "minimal" }`.
+Plain text, a few short paragraphs, at most 4000 characters: when it merged and as
+which commit, how the deploy went and how long it took, the smoke result, the
+monitor window (how many checks, how long, anything that was not clean), the tag,
+and what is left for the operator to follow up. It is reported, not verified. The
+release is shipped and read-only by now; this write is still accepted. A store
+older than the release record ignores the field: the release it returns carries no
+`deploy_summary` — say so and carry on.
+
+A deploy that did not reach `done` — a smoke failure waiting on the rollback
+decision — has no deploy summary yet. Write it when the record does reach `done`.
 
 ## Smoke failure — the rollback decision
 
@@ -262,8 +294,13 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
    record it: `set_ship_step { release, step: "releasing", release_url }`.
 5. **Close it out.** `set_ship_step { release, step: "done", verdict: "shipped" }`.
    The release derives `shipped`. If the ship went wrong and the operator is
-   backing it out, record `verdict: "rollback-needed"` instead and stop — do not
-   fake a shipped verdict.
+   backing it out, record `verdict: "rollback-needed"` instead — do not fake a
+   shipped verdict. Either way, step 6 follows.
+6. **Write the deploy summary** — on either verdict, once the record is at `done`:
+   `mcp__marshall__release_update { release, deploy_summary: <text>, return: "minimal" }`
+   — when it merged and as which commit, the CHANGELOG date, the tag, the published
+   release, and what is left to follow up; on `rollback-needed`, say that it was
+   backed out and why. Same rules as Step 6 of the deploy flow.
 
 ### Tag-mode guardrails
 
