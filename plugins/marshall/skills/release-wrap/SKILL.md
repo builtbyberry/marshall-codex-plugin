@@ -41,6 +41,9 @@ hand-off differ. See **Which mode — read `wrap.mode` first**.
   directly here. The wrap **reads** the findings they produce to drive the gate.
 - `mcp__marshall__set_component_state` — only the composed `$release-topic` flow
   moves components to `merged`. This skill does not advance work-state; it reads it.
+- `mcp__marshall__release_update` — the one thing this skill writes on the release
+  itself: its **wrap summary**, at the hand-off (Step 5). It is the release's record
+  of how it was wrapped, kept after this terminal closes.
 
 (If the MCP server isn't connected, stop and say so — there is no local fallback
 for the wrap state, the findings, *or* the lenses.)
@@ -250,6 +253,18 @@ When all three hold, declare the release ready and hand off to
 State that the deploy skill **re-checks these same preconditions** against the
 store before it merges, so nothing is taken on trust across the handoff.
 
+**Then write the wrap summary**, so the hand-off outlives this terminal:
+`mcp__marshall__release_update { release, wrap_summary: <text>, return: "minimal" }`.
+Plain text, a few short paragraphs, at most 4000 characters: what the release is
+(one sentence), the parts it wrapped, what the reviews found and what was done
+about it (found, fixed, accepted, deferred — by number), what is still open that
+the operator ships knowing, and which hand-off it is (ready-for-deploy or
+ready-to-ship). It is reported, not verified. Write it only when the release is
+declared ready — a wrap that stopped at the gate has nothing to hand off. A wrap
+run again after more work replaces it. A store older than the release record
+ignores the field: the release it returns carries no `wrap_summary` — say so and
+carry on.
+
 Do not merge, deploy, or tag automatically. The user invokes
 `$release-deploy` when ready.
 
@@ -293,7 +308,8 @@ Do not merge, deploy, or tag automatically. The user invokes
   to land it — don't wrap a half-merged release.
 - **Readiness is derived, not stored** — ready-for-deploy in deploy mode,
   ready-to-ship in tag mode. Never invent a store flag for either; state it as the
-  precondition `$release-deploy` re-checks.
+  precondition `$release-deploy` re-checks. The wrap summary is a record of
+  the hand-off, not that flag: nothing reads it to decide whether a release is ready.
 - The store enforces the finding lifecycle. Resolutions go through the composing
   skills' modes; surface `invalid_finding_transition` verbatim rather than working
   around it.
