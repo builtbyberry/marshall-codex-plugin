@@ -97,9 +97,19 @@ On invocation, `release_get { release }` and read `deploy.step`:
 3. The release PR exists, is not a draft, is `MERGEABLE`/`CLEAN`, and its checks
    are green (`gh pr view --json isDraft,mergeable,mergeStateStatus,statusCheckRollup`).
 4. No topic PRs are still open into the release branch.
-5. Readiness handed off: ideally invoked after `$release-wrap`. The store-side
-   gate is the real backstop — `set_deploy_step` will refuse with `deploy_blocked`
-   if any high finding is unresolved — but warn if wrap wasn't run.
+5. Readiness handed off: ideally invoked after `$release-wrap`. Read the
+   wrap mark from `release_get`: `wrapped: true` means the release was wrapped and
+   nothing has changed since. If `wrapped` is `false`, **warn before going on** and
+   say which it is — `wrapped_at` is `null`: wrap was not run (or was run by a
+   plugin older than the mark); `wrapped_at` is set: the release was wrapped, but
+   that wrap no longer counts — a part was reopened or added, or a high finding
+   was recorded, after it, or the mark was set while a part was neither merged
+   nor cancelled or a high finding was unresolved. Either
+   way recommend `$release-wrap` first. This is a warning, not a refusal:
+   the operator may go on. A store older than the mark sends no `wrapped` — say you
+   cannot tell whether wrap was run. The store-side gate is the real backstop —
+   `set_deploy_step` will refuse with `deploy_blocked` if any high finding is
+   unresolved.
 
 ## The flow
 

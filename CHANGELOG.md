@@ -7,6 +7,30 @@ version is set at the source in `builtbyberry/swarm-release-manager` and rendere
 into `plugins/marshall/.codex-plugin/plugin.json`; the heading and git tag here must
 match whatever that render declares.
 
+## 1.13.0 — 2026-10-06
+
+A wrap leaves a mark, and the deploy reads it.
+
+### Changed
+
+- **`release-wrap` sets the wrap mark at the hand-off.** The call that writes the wrap
+  summary now also sends `wrapped: true`, and the store stamps when (`wrapped_at`). The
+  mark is what moves a release's next step from "Wrap the release" to "Deploy the
+  release" in Marshall Workspace and on the release page. The skill sets it only when
+  the release is declared ready and never clears it: the store stops counting a wrap by
+  itself once a part is reopened or added, or a high finding is recorded, after it. The
+  skill checks that the release it gets back reads `wrapped: true`, and says why when it
+  does not.
+- **`release-deploy` warns when a release is not wrapped.** Its preflight reads `wrapped`
+  from `release_get` and, when it is `false`, says which case it is — wrap was never run,
+  or a wrap was run and no longer counts — and recommends `release-wrap` first. It is a
+  warning, not a refusal; the store's check for unresolved high findings is still the
+  gate.
+
+Needs a store that has deployed agent-sight. Against an older store the field is ignored
+and the skills say so and carry on. A release wrapped with 1.12.0 or older has a summary
+and no mark, and reads as not wrapped until it is wrapped again.
+
 ## 1.12.0 — 2026-10-02
 
 The build loop leaves evidence, and a finished release keeps its record.
