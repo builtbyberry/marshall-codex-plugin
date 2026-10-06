@@ -230,8 +230,8 @@ deferred high is still an unmitigated high, and the store returns the same
 
 ### Step 5 — Hand off
 
-There is **no explicit store "ready" flag.** Readiness is a *derived
-precondition*, the conjunction of:
+Readiness is a *derived precondition* — nothing stored decides it. It is the
+conjunction of:
 
 1. every component `merged` (Step 0),
 2. CHANGELOG entry filled for this release (Step 2) — plus, in tag mode, the
@@ -253,8 +253,9 @@ When all three hold, declare the release ready and hand off to
 State that the deploy skill **re-checks these same preconditions** against the
 store before it merges, so nothing is taken on trust across the handoff.
 
-**Then write the wrap summary**, so the hand-off outlives this terminal:
-`mcp__marshall__release_update { release, wrap_summary: <text>, return: "minimal" }`.
+**Then write the wrap summary and set the wrap mark**, in one call, so the
+hand-off outlives this terminal:
+`mcp__marshall__release_update { release, wrap_summary: <text>, wrapped: true, return: "minimal" }`.
 Plain text, a few short paragraphs, at most 4000 characters: what the release is
 (one sentence), the parts it wrapped, what the reviews found and what was done
 about it (found, fixed, accepted, deferred — by number), what is still open that
@@ -264,6 +265,21 @@ declared ready — a wrap that stopped at the gate has nothing to hand off. A wr
 run again after more work replaces it. A store older than the release record
 ignores the field: the release it returns carries no `wrap_summary` — say so and
 carry on.
+
+`wrapped: true` is **the wrap mark**: it records that this release was wrapped.
+It is a yes, never a time — the store stamps the time itself and returns it as
+`wrapped_at`. It is what moves the release's next step from "Wrap the release" to
+"Deploy the release" in Marshall Workspace and on the release page. Set it only
+when the release is declared ready, in this call. Never clear it yourself: the
+store stops counting a wrap on its own once a part is reopened or added, or a
+high finding is recorded, after it — the release then reads `wrapped: false` and
+needs a wrap again, and running this skill again sets the mark again. Check the
+release this call returns: `wrapped` should read `true`. If it reads `false`,
+the store does not count this wrap: a part is not merged or cancelled, a high
+finding is unresolved, the release has no parts, or something changed while you
+wrapped — re-read the release and say which. A store
+older than the mark ignores the field: the release it returns carries no
+`wrapped` — say so and carry on.
 
 Do not merge, deploy, or tag automatically. The user invokes
 `$release-deploy` when ready.
@@ -307,9 +323,15 @@ Do not merge, deploy, or tag automatically. The user invokes
   isn't `merged` (or has drifted per `release_status`), stop and send the user back
   to land it — don't wrap a half-merged release.
 - **Readiness is derived, not stored** — ready-for-deploy in deploy mode,
-  ready-to-ship in tag mode. Never invent a store flag for either; state it as the
-  precondition `$release-deploy` re-checks. The wrap summary is a record of
-  the hand-off, not that flag: nothing reads it to decide whether a release is ready.
+  ready-to-ship in tag mode. State it as the precondition
+  `$release-deploy` re-checks. The wrap summary is a record of
+  the hand-off, not a flag: nothing reads it to decide whether a release is ready.
+  The wrap mark (`wrapped: true`) records that the wrap happened and when — it is
+  what the next step is read from, and it gates nothing: the deploy's own gate is
+  still the store's check for unresolved high findings.
+- **Set the wrap mark only at the hand-off, and never clear it.** A wrap that
+  stopped at the gate sets no mark. The store works out by itself when a mark has
+  stopped counting.
 - The store enforces the finding lifecycle. Resolutions go through the composing
   skills' modes; surface `invalid_finding_transition` verbatim rather than working
   around it.
