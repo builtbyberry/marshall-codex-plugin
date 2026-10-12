@@ -93,6 +93,10 @@ are the same values every heartbeat carries.
 | `guards_proven` | `{ guards: [{ test, mutation, observed_failure }, …] }` — one entry per guard you watched fail |
 | `fixes_verified` | `{ verdict, findings: [<finding id>, …] }` — the finding **ids** the verifier checked (not their refs); `[]` when the review found nothing |
 
+A record of a check that was handed to the other agent also carries `reviewer` in
+its `evidence` (see **The reviewer dial**); the store keeps it as it keeps any extra
+evidence key.
+
 Records are append-only: recording a gate again adds a record and keeps the earlier
 one as history, so re-running a gate is recorded again, never edited.
 
@@ -265,6 +269,113 @@ dispatched one. The entry mode does **not** add a second merge axis: `land-only`
 (below) inherits this same dispatched → autonomous / interactive → supervised
 default, with the same override.
 
+### The reviewer dial
+
+Who runs the checks that must be independent of the builder is the operator's call
+too, and it is **asked for, never assumed**:
+
+- **same agent** — a subagent of the builder runs them. This is the default: with
+  nothing said, every step below runs exactly as written.
+- **the other agent** — the other coding agent on this machine runs them, headless,
+  from this session. The operator asks for it in the invocation: `reviewer: other`,
+  or plain words that mean it.
+
+It is asked for on a run of a part and **never becomes a standing default**: a
+dispatched run does not turn it on, nor does memory, a config file, or what an
+earlier run on this part did. `reviewer: same`, or saying nothing, is the same
+agent — on a resume too. Resolve it at Step 0 and say which one you are driving. On a
+resume with nothing said, if a gate record on the part carries
+`reviewer: "claude-code"`, say so — the operator may want to ask again — and
+stay on the same agent.
+
+**What is handed off.** Every check this skill requires to be independent of the
+builder: Step 3's pressure-test of the plan, the plan-vs-implementation review that
+Step 0 runs in its place, and Step 8's verification of the fixes. Step 3 is handed
+off **always** — the inline pass a trivial plan may take is the builder's own, so it
+is no review by the other agent. Step 5 is the builder's own work and stays with it,
+and `$change-review`'s per-lens subagents are its to prompt.
+
+**Handing a check off — a failed hand-off is never retried; it falls back.** The
+commands, checked on the CLI version the block names — an older CLI may refuse a
+flag, and that is a fallback too:
+
+```bash
+# The other agent is Claude Code. Checked on Claude Code 2.1.293.
+# 1. Installed, and signed in ("loggedIn": true)? If not, fall back: run
+#    nothing below.
+command -v claude && claude auth status
+# 2. A new folder for every hand-off. Write brief.md (and diff.patch) into
+#    the folder this prints.
+handoff=$(mktemp -d) && echo "$handoff"
+# 3. Run it once, from the part's checkout. Set handoff to that folder again
+#    if your shell did not keep it. Read the printed exit= first.
+cd "$(git rev-parse --show-toplevel)" && claude -p --safe-mode --tools "Read,Grep,Glob" \
+  --strict-mcp-config --permission-prompts none --no-session-persistence \
+  --add-dir "$handoff" \
+  < "$handoff/brief.md" > "$handoff/verdict.md" 2> "$handoff/log.txt"; echo "exit=$?"
+```
+
+The three steps are the block's own `# 1.`, `# 2.` and `# 3.`:
+
+1. Run the command under `# 1.`. If the CLI is missing or not signed in, **fall
+   back** (below) and run nothing else.
+2. Run the command under `# 2.` and **note the path it prints**: a shell that keeps
+   no variables between commands needs `handoff` set to it again in step 3. Write
+   the **brief** into that folder as `brief.md`: the check to run; the acceptance
+   criteria; what is under review — the plan, or each finding and the fix made for
+   it, with the diff saved beside it as `diff.patch` (the reviewer may have no shell
+   to run `git diff` with); **the scope constraint verbatim**; for Step 8, the
+   verifier's session token; and how to answer — say what it read, change nothing,
+   call no store tool, and end with the verdict line. The brief itself never ends
+   with a verdict line.
+3. Beat the claim, then run the command under `# 3.` once, from the part's checkout
+   — in the background where the host can, otherwise with the longest timeout the
+   host allows — and keep beating the claim while it runs. A review of real size
+   takes minutes. One that has not finished in **30 minutes** is stopped, and that
+   is a fallback.
+
+**Read the printed `exit=` first.** Read `verdict.md` only on `exit=0`; on anything
+else it is a fallback, whatever the folder holds.
+
+The reviewer is **read-only by construction**: it can read the checkout, the brief
+and the diff, it cannot change the builder's files, and it holds no store tool — the
+builder records the gate. It starts without the operator's plugins, hooks and MCP
+servers, so nothing of the builder's setup steers it. It leaves no session behind for a later "continue the most
+recent conversation" to pick up. It runs no test suite, so for Step 8 this is a
+narrower check than a same-agent verifier that can run the tests: hand it the test
+and mutation output it should weigh, and have its verdict say what it read.
+
+**The verdict.** The last non-empty line of `verdict.md` — a closing code fence
+skipped, one pair of backticks around the line removed — must be exactly one of:
+
+- for a plan: `VERDICT: SURVIVES`, `VERDICT: SURVIVES WITH CHANGES`, `VERDICT: DOES NOT SURVIVE`
+- for fixes: `VERDICT: VERIFIED`, `VERDICT: NOT VERIFIED`
+
+Everything above that line is the review: read it back into the loop as you would a
+subagent's report. `DOES NOT SURVIVE` and `NOT VERIFIED` are verdicts, not failed
+hand-offs: revise the plan or fix what was not verified, then hand off again (a new
+hand-off, in a new folder). A verdict you do not like is never a reason to fall back.
+
+**Falling back.** The other CLI is **missing**, it is **not signed in**, it **exits
+with anything but 0**, it **does not finish** in time, or it finishes **without a
+verdict line** — then run the check with a same-agent subagent, exactly as the
+default does, and **say plainly that it fell back and why**. The fallback is
+**always a subagent, never the inline pass**, however small the plan. A failed
+hand-off **never passes a gate on its own**: with no verdict there is no pass until
+the fallback's subagent gives one. A fallback covers that one check only: **each
+check makes its own hand-off attempt**, so a Step 3 that fell back does not stop
+Step 8 trying the other agent.
+
+**The record names the reviewer.** A gate record for a check that was handed off
+carries who reviewed, as `reviewer` in its `evidence`: `reviewer: "claude-code"`
+when the other agent gave the verdict, `reviewer: "codex"` when it fell back. Its
+`verdict` text says the same in words — who reviewed, and on a fallback that it fell
+back and why — because the verdict is what a person reads. On the default setting the
+record is written exactly as each step shows, with no `reviewer`. The store's
+independence rule is untouched: Step 8 still mints the verifier's token, the brief
+carries it, and the record is written with it as `session`. `reviewer` says who
+reviewed; it never stands in for `session`.
+
 ## The two steps that must not be optimised away
 
 Both were invented under fire and both caught defects every other layer missed.
@@ -372,12 +483,19 @@ whole loop is **resumable from the store + git** (see Step 0) — never from mem
     next entry reads it instead of asking again: a plan-vs-implementation review
     that the plan survived is `passed` (its `verdict` says it was run after the
     code existed); an operator attestation or a void is `waived`, with the
-    attestation or the reason as its `reason`.
+    attestation or the reason as its `reason`. With **the other agent** as reviewer
+    (see **The reviewer dial**), the plan-vs-implementation review is **handed off**
+    like Step 3's — its brief carries the scope constraint verbatim, and its record
+    carries `reviewer: "claude-code"` in its evidence, or
+    `reviewer: "codex"` if it fell back.
 
   A gate you cannot confirm and do not account for is a silent skip, the one thing
   this loop must never do.
 - Resolve the **merge dial** (dispatched → autonomous; interactive → supervised) —
   an explicit operator instruction overrides it.
+- Resolve the **reviewer dial**: the other agent **only** when this invocation asks
+  for it (`reviewer: other`, or plain words that mean it); otherwise the same agent.
+  Say which one you are driving.
 
 ### Step 1 — Claim + branch  *(composes `$release-topic`)*
 Run `$release-topic`'s procedure: confirm startable, the **reuse rule**
@@ -412,6 +530,15 @@ When it survives, **record the gate** before any code:
 — `verdict` says who pressure-tested it (an independent subagent, or the inline
 pass) and that it survived; `changes` lists what the pressure-test changed in the
 plan.
+
+**With the other agent as reviewer** (see **The reviewer dial**), this check is
+**handed off** to it instead of a subagent — always, with no inline pass, and with
+the scope constraint verbatim in its brief. Revise until its verdict is
+`VERDICT: SURVIVES` or `VERDICT: SURVIVES WITH CHANGES` with every change taken. The
+record then names it:
+`mcp__marshall__record_gate { component, kind: "plan_pressure_tested", outcome: "passed", commit, evidence: { verdict, changes: [...], reviewer: "claude-code" }, agent: "codex", machine, return: "minimal" }`
+— or `reviewer: "codex"` when the hand-off fell back and a subagent ran it, with
+the `verdict` saying that it fell back and why.
 
 ### Step 4 — Build
 Implement to the surviving plan and the acceptance criteria — **no more.** Do not
@@ -477,6 +604,16 @@ left off, not that the gate failed: pass it and record again. This is an
 attestation the store holds you to, not proof — so never mint a token for a
 verification you did yourself.
 
+**With the other agent as reviewer** (see **The reviewer dial**), the verification
+is **handed off** to it instead of a subagent. Mint the token just the same and put
+it in the brief, with the scope constraint verbatim, each finding, what each fix
+changed, and the diff. Only `VERDICT: VERIFIED` passes the gate; on
+`VERDICT: NOT VERIFIED`, fix what it names and hand off again. The record names it:
+`mcp__marshall__record_gate { component, kind: "fixes_verified", outcome: "passed", commit, session: "<the verifier's token>", evidence: { verdict, findings: [<finding id>, ...], reviewer: "claude-code" }, agent: "codex", machine, return: "minimal" }`
+— or `reviewer: "codex"` when the hand-off fell back and a subagent verified,
+with the `verdict` saying that it fell back and why. `verifier_not_independent`
+applies to this record exactly as to the default one.
+
 A **high** `kind: change` finding left `open` or `deferred` is hard-stop #1 unless it
 can be fixed inside the acceptance criteria.
 
@@ -519,7 +656,7 @@ can be fixed inside the acceptance criteria.
 - Release the claim (`$release-unclaim`), and hand back:
   `$release-next` if components remain, else `$release-wrap`.
 
-## The scope constraint (verbatim, in every subagent this skill spawns)
+## The scope constraint (verbatim, in every subagent this skill spawns and every brief it hands to the other agent)
 
 > Deliver exactly the component's acceptance criteria — do not invent new ones. A
 > problem outside this component's scope is **recorded against the release**, not
@@ -544,6 +681,11 @@ can be fixed inside the acceptance criteria.
   cannot take it gets the gate outbox, replayed later. A recording problem is never
   retried in a loop and never stops the loop — except at landing, when the project
   requires that gate and the store has no record of it.
+- **The other agent reviews only when asked.** The reviewer dial is the same agent
+  unless this invocation asks for the other one; it is never a standing default. A
+  hand-off that fails falls back to a same-agent subagent and says so — it never
+  passes a gate on its own — and every record of a handed-off check names its
+  `reviewer`.
 - **A guard you have not watched fail is not proven** — including the wire shape at a
   protocol boundary, not only the code path.
 - **Deliver the acceptance criteria, nothing more.** Out-of-scope problems are release
