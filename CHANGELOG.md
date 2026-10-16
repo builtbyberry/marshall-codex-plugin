@@ -7,6 +7,22 @@ version is set at the source in `builtbyberry/swarm-release-manager` and rendere
 into `plugins/marshall/.codex-plugin/plugin.json`; the heading and git tag here must
 match whatever that render declares.
 
+## 1.15.0 - 2026-10-16
+
+Name the reviewer's model, and see where a failed hand-off left its log.
+
+### Changed
+
+- **A run can name the Claude Code reviewer's model and effort.** `reviewer model:
+  <name>`, `reviewer effort: <level>` pass `--model` / `--effort` for that run only;
+  left unsaid, your Claude Code settings decide.
+- **The Claude Code hand-off stops outside a git repository** instead of running
+  from the wrong folder.
+- **A fallback names the hand-off folder.** When a hand-off falls back to a Codex
+  subagent, the message and the gate record's `verdict` give the hand-off folder's
+  full path, whose `log.txt` holds what Claude Code said.
+- The hand-off block is checked on Claude Code 2.1.300.
+
 ## 1.14.0 - 2026-10-12
 
 Choose the other agent to review a build.

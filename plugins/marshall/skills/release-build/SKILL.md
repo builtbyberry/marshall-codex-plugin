@@ -288,6 +288,15 @@ resume with nothing said, if a gate record on the part carries
 `reviewer: "claude-code"`, say so — the operator may want to ask again — and
 stay on the same agent.
 
+**Which model reviews.** With nothing said, the other agent reviews on the model and
+reasoning effort the operator set for it, as the hand-off block below reads them. The
+operator can name the reviewer's model, its reasoning effort, or both, in the same
+invocation — `reviewer: other, reviewer model: <name>, reviewer effort: <level>`, or
+plain words that mean it — and those win. Like the dial, they are asked for on a run
+and never become a standing default. Put what was named between the quotes the block
+marks for it, and leave the quotes empty for what was not; say which model and effort
+you asked for when you resolve the dial.
+
 **What is handed off.** Every check this skill requires to be independent of the
 builder: Step 3's pressure-test of the plan, the plan-vs-implementation review that
 Step 0 runs in its place, and Step 8's verification of the fixes. Step 3 is handed
@@ -300,18 +309,24 @@ commands, checked on the CLI version the block names — an older CLI may refuse
 flag, and that is a fallback too:
 
 ```bash
-# The other agent is Claude Code. Checked on Claude Code 2.1.293.
+# The other agent is Claude Code. Checked on Claude Code 2.1.300.
 # 1. Installed, and signed in ("loggedIn": true)? If not, fall back: run
 #    nothing below.
 command -v claude && claude auth status
 # 2. A new folder for every hand-off. Write brief.md (and diff.patch) into
 #    the folder this prints.
 handoff=$(mktemp -d) && echo "$handoff"
-# 3. Run it once, from the part's checkout. Set handoff to that folder again
-#    if your shell did not keep it. Read the printed exit= first.
-cd "$(git rev-parse --show-toplevel)" && claude -p --safe-mode --tools "Read,Grep,Glob" \
-  --strict-mcp-config --permission-prompts none --no-session-persistence \
-  --add-dir "$handoff" \
+# 3. Run all of this once, as one command, from the part's checkout. Set
+#    handoff to that folder again if your shell did not keep it. Put the
+#    reviewer model or effort the run named between the quotes; left empty,
+#    your Claude Code settings decide. Read the printed exit= first.
+reviewer_model=''; reviewer_effort=''
+set --
+[ -z "$reviewer_model" ] || set -- "$@" --model "$reviewer_model"
+[ -z "$reviewer_effort" ] || set -- "$@" --effort "$reviewer_effort"
+root=$(git rev-parse --show-toplevel) && cd "$root" && claude -p --safe-mode "$@" \
+  --tools "Read,Grep,Glob" --strict-mcp-config --permission-prompts none \
+  --no-session-persistence --add-dir "$handoff" \
   < "$handoff/brief.md" > "$handoff/verdict.md" 2> "$handoff/log.txt"; echo "exit=$?"
 ```
 
@@ -359,7 +374,10 @@ hand-off, in a new folder). A verdict you do not like is never a reason to fall 
 **Falling back.** The other CLI is **missing**, it is **not signed in**, it **exits
 with anything but 0**, it **does not finish** in time, or it finishes **without a
 verdict line** — then run the check with a same-agent subagent, exactly as the
-default does, and **say plainly that it fell back and why**. The fallback is
+default does, and **say plainly that it fell back and why** — naming the hand-off
+folder by its full path when one was made, since its `log.txt` holds what the CLI
+said (a CLI that is missing or not signed in fails before any folder is made, so
+there is none to name). The fallback is
 **always a subagent, never the inline pass**, however small the plan. A failed
 hand-off **never passes a gate on its own**: with no verdict there is no pass until
 the fallback's subagent gives one. A fallback covers that one check only: **each
@@ -370,7 +388,8 @@ Step 8 trying the other agent.
 carries who reviewed, as `reviewer` in its `evidence`: `reviewer: "claude-code"`
 when the other agent gave the verdict, `reviewer: "codex"` when it fell back. Its
 `verdict` text says the same in words — who reviewed, and on a fallback that it fell
-back and why — because the verdict is what a person reads. On the default setting the
+back and why, with the hand-off folder's full path when one was made — because the
+verdict is what a person reads. On the default setting the
 record is written exactly as each step shows, with no `reviewer`. The store's
 independence rule is untouched: Step 8 still mints the verifier's token, the brief
 carries it, and the record is written with it as `session`. `reviewer` says who
@@ -538,7 +557,8 @@ the scope constraint verbatim in its brief. Revise until its verdict is
 record then names it:
 `mcp__marshall__record_gate { component, kind: "plan_pressure_tested", outcome: "passed", commit, evidence: { verdict, changes: [...], reviewer: "claude-code" }, agent: "codex", machine, return: "minimal" }`
 — or `reviewer: "codex"` when the hand-off fell back and a subagent ran it, with
-the `verdict` saying that it fell back and why.
+the `verdict` saying that it fell back and why, and naming the hand-off folder's full
+path when one was made.
 
 ### Step 4 — Build
 Implement to the surviving plan and the acceptance criteria — **no more.** Do not
@@ -611,7 +631,8 @@ changed, and the diff. Only `VERDICT: VERIFIED` passes the gate; on
 `VERDICT: NOT VERIFIED`, fix what it names and hand off again. The record names it:
 `mcp__marshall__record_gate { component, kind: "fixes_verified", outcome: "passed", commit, session: "<the verifier's token>", evidence: { verdict, findings: [<finding id>, ...], reviewer: "claude-code" }, agent: "codex", machine, return: "minimal" }`
 — or `reviewer: "codex"` when the hand-off fell back and a subagent verified,
-with the `verdict` saying that it fell back and why. `verifier_not_independent`
+with the `verdict` saying that it fell back and why, and naming the hand-off folder's
+full path when one was made. `verifier_not_independent`
 applies to this record exactly as to the default one.
 
 A **high** `kind: change` finding left `open` or `deferred` is hard-stop #1 unless it
