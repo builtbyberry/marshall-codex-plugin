@@ -1,6 +1,6 @@
 ---
 name: release-deploy
-description: "Drive the final cut-over of a release against the shared Marshall store — deploy mode (merge the release PR, watch the deploy, smoke-check production, monitor the window, tag the merge commit, via set_deploy_step) or tag mode (merge, date, tag, GitHub Release, Packagist, via set_ship_step) — recording every step on the store's record so it is resumable across sessions and machines. Use when the user says /release-deploy, deploy the release, ship <release>, tag the release, or cut over to prod."
+description: "Complete a release cut-over through the shared Marshall store, then finish the project's declared artifact publications and Desktop rebuild. Supports production deployment with smoke and monitoring, or tagged package shipping. Use for release-deploy, deploying or shipping a release, and resuming unfinished delivery after cut-over."
 ---
 
 # Release Deploy (Marshall)
@@ -11,6 +11,13 @@ record is the single source of truth** for where the deploy is: `release_get`
 tells you the step, `set_deploy_step` advances it. That is what makes this
 resumable across sessions, machines, and agents — and what stops a re-run from
 re-shipping prod.
+
+The workflow also completes the project's declared delivery steps after cut-over:
+plugin publication and a Desktop rebuild where the project ships those artifacts.
+Read the project's runbook before starting and include those steps in the plan.
+In deploy mode, explicit autonomous approval covers the named merge, publication,
+tag and rebuild steps without another confirmation. It does not waive checks or
+authorize rollback.
 
 ## How it talks to the store
 
@@ -81,9 +88,9 @@ On invocation, `release_get { release }` and read `deploy.step`:
   rollback decision — see **Smoke failure**).
 - `monitor` → resume the monitor window from `deploy.monitor` (compute elapsed from
   the recorded window start; do not restart the clock).
-- `done` → already shipped; report and stop — but first, if the release's
-  `deploy_summary` is `null`, the run that reached `done` ended before writing it:
-  write it now from the deploy record (Step 6), then report.
+- `done` → cut-over already shipped. Never merge or deploy again. Repair a missing
+  `deploy_summary` from the deploy record (Step 6), then resume any unfinished
+  **Delivery after cut-over** below before reporting completion.
 
 > The deploy is the one step with an irreversible external side effect. Every
 > action below is gated on `deploy.step` precisely so a resumed or re-dispatched
@@ -117,7 +124,8 @@ On invocation, `release_get { release }` and read `deploy.step`:
 
 1. Show the plan (merge PR #N into `<default_branch>`, watch the deploy, smoke
    `<production_url><smoke_check_path>`, monitor `<window>` min) and wait for an
-   explicit `yes`.
+   explicit approval unless the operator already approved that scope, including
+   an explicit autonomous run.
 2. **Trip the readiness gate BEFORE the irreversible merge.** `set_deploy_step {
    release, step: 'merging' }` — this creates the one deploy record and runs the
    gate. If it returns `deploy_blocked`, **stop and do not merge**: the release has
@@ -128,8 +136,10 @@ On invocation, `release_get { release }` and read `deploy.step`:
 3. **Merge (idempotent).** `gh pr view <N> --json state,mergeCommit`. If already
    `MERGED` (a prior run, or the user did it by hand), use the recorded
    `mergeCommit.oid`. Otherwise — only now that the gate has cleared — surface
-   `gh pr merge <N> --merge --delete-branch` for the **user** to run (human-
-   initiated; do not run it yourself) and wait for "merged".
+   `gh pr merge <N> --merge --delete-branch --match-head-commit <verified-head>`
+   for the **user** to run and wait for "merged". When the operator explicitly
+   authorized autonomous merging, run that exact-head command yourself and verify
+   the resulting merge commit.
 4. Advance with the merge evidence: `set_deploy_step { release, step: 'deploying',
    merged_by, merge_sha: <oid> }`. The deploy is now in flight — Step 2.
 
@@ -263,6 +273,43 @@ driving a release component's lifecycle, mark it merged and release its claim pe
 `$release-topic` step 5–6. The release's derived phase is now `shipped`
 (from `deploy.step === 'done'`).
 
+### Delivery after cut-over
+
+The store's terminal `done` records the cut-over. It does not prove that plugin
+users received new skills or that a local Desktop app was rebuilt. Complete the
+delivery steps declared in this project's runbook, using existing publication
+approval or the operator's explicit autonomous scope. If that scope is missing,
+prepare the artifacts and ask for the specific publication action still needed.
+
+For a project that publishes the Marshall plugins and Workspace:
+
+1. Work from a clean, current `main`. Land any source changes there before
+   publishing. Read both vendor manifests and inspect both artifact repositories;
+   a shared skill change reaches Claude and Codex. Publish both changed artifacts
+   with `php artisan srm:publish-plugin claude <claude-checkout>` and
+   `php artisan srm:publish-plugin codex <codex-checkout>`. Bump each changed
+   artifact's source version before rendering; an unchanged artifact needs a
+   successful `--check`, not a new version just to repeat the publish.
+2. Review each generated diff, commit and merge its artifact PR, push its own
+   `v<version>` tag, and verify the remote tag's peeled commit. Run the publisher's
+   `--check` for both vendors and the project's plugin-drift workflow. A local
+   render or an unpushed tag is not publication. On resume, inspect existing PRs
+   and remote tags first; never move a published tag or duplicate a completed
+   publish. Update local installs when requested and report any session restart
+   still needed.
+3. Rebuild Marshall Workspace from `main` using the runbook's build command.
+   Record the source commit, exact app bundle path and executable hash, and verify
+   the bundle carries the binary just built. Give the app path and an `open`
+   command in the completion message. Do not terminate active app sessions to
+   replace or relaunch a build; report any relaunch still needed.
+4. Update `deploy_summary` with each vendor's published version, artifact PR,
+   remote tag and check result, plus the Workspace build evidence. Preserve the
+   cut-over facts already recorded. Report delivery complete only when every
+   declared step has evidence; otherwise name the precise remaining step.
+
+Projects without these artifacts have no Marshall plugin or Workspace delivery
+step. Follow their own runbook rather than introducing unrelated publications.
+
 ## Tag mode — the ship path (`wrap.mode == tag`)
 
 A release that ships as a **tagged package** (Packagist auto-syncs on the tag)
@@ -330,8 +377,9 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
   store is the source of truth across sessions, machines, and agents.
 - **Never re-merge or re-trigger a deploy that already happened.** Gate every
   side-effecting action on `deploy.step`; `deploying`+ means it is in flight.
-- **Do not auto-merge, auto-rollback, or auto-retry a smoke check.** Those are
-  human decisions; the skill prepares, records, and surfaces.
+- **Merge only within the operator's approved scope.** Explicit autonomous
+  approval permits execution; otherwise surface the merge command for the user.
+  Do not auto-rollback or auto-retry a failed smoke check.
 - **A failed smoke stays at `smoke`/`monitor`, not `done`.** Don't fake a shipped
   verdict on a deploy that didn't ship — and don't tag it either.
 - **Tag the `merge_sha`, not `HEAD`.** By the time the monitor window closes the
