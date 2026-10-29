@@ -22,9 +22,9 @@ credential provisioning, workspace grants, rotation, and revocation.
 The plugin holds **every mutating MCP tool for approval** and pre-approves only the
 read-only tools — a fail-safe posture, because Codex's OS sandbox does not gate
 MCP calls. The `.mcp.json` sets `default_tools_approval_mode = prompt`
-and lists exactly the nine reads (`release_get`, `release_next`, `release_status`,
-`release_changelog`, `project_list`, `my_claims`, `dispatch_get`, `lenses_get`,
-`lenses_applicable`) as `approve`; every other tool — every create, state move,
+and lists exactly the ten reads (`release_get`, `release_next`, `release_status`,
+`release_list`, `release_changelog`, `project_list`, `my_claims`, `dispatch_get`,
+`lenses_get`, `lenses_applicable`) as `approve`; every other tool — every create, state move,
 deploy/ship step, archive/delete, and any tool added later — inherits `prompt`.
 
 ## What's in here
