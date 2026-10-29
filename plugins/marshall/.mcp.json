@@ -14,6 +14,9 @@
                 "release_status": {
                     "approval_mode": "approve"
                 },
+                "release_list": {
+                    "approval_mode": "approve"
+                },
                 "release_changelog": {
                     "approval_mode": "approve"
                 },
