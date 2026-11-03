@@ -226,7 +226,14 @@ deferred high is still an unmitigated high, and the store returns the same
   (addressed) or `accepted` (explicit, owned risk acceptance) — via the composing
   skill's mode (`resolve_finding`). Re-check after each resolution.
 - `medium`/`low` findings do **not** block; surface any still open/deferred so the
-  user ships with eyes open.
+  user ships with eyes open — **unless the project requires triage.**
+- **Triage first, when the project asks for it.** If the release's
+  `config.require_triage` is `true`, no finding of **any** severity may be `open`:
+  list every `open` one (id, ref, kind, severity, summary) and drive each to
+  `fixed`, `accepted` or `deferred` through the composing skill's mode
+  (`resolve_finding`) before Step 5. Deferred and accepted findings satisfy it; only
+  `open` does not. The store enforces this: the wrap mark and the deploy's start are
+  refused with `untriaged_findings` while one is open.
 
 ### Step 5 — Hand off
 
@@ -236,7 +243,8 @@ conjunction of:
 1. every component `merged` (Step 0),
 2. CHANGELOG entry filled for this release (Step 2) — plus, in tag mode, the
    UPGRADING section if any component is `breaking`,
-3. no `high` finding `open` or `deferred` (Step 4 gate clear).
+3. no `high` finding `open` or `deferred` (Step 4 gate clear) — and, when
+   `config.require_triage` is `true`, no finding of any severity `open`.
 
 When all three hold, declare the release ready and hand off to
 **`$release-deploy`**, naming **which progression it will drive**:
@@ -266,6 +274,11 @@ run again after more work replaces it. A store older than the release record
 ignores the field: the release it returns carries no `wrap_summary` — say so and
 carry on.
 
+If the call answers **`untriaged_findings`**, the project requires every finding
+triaged and the findings in its `blocking` list are still `open` — one was
+recorded after Step 4, or Step 4 missed it. **Nothing in the call was written**,
+the wrap summary included. Triage each one (Step 4), then send this call again.
+
 `wrapped: true` is **the wrap mark**: it records that this release was wrapped.
 It is a yes, never a time — the store stamps the time itself and returns it as
 `wrapped_at`. It is what moves the release's next step from "Wrap the release" to
@@ -273,11 +286,14 @@ It is a yes, never a time — the store stamps the time itself and returns it as
 when the release is declared ready, in this call. Never clear it yourself: the
 store stops counting a wrap on its own once a part is reopened or added, or a
 high finding is recorded, after it — the release then reads `wrapped: false` and
-needs a wrap again, and running this skill again sets the mark again. Check the
+needs a wrap again, and running this skill again sets the mark again. On a
+project that requires triage, an `open` finding also holds the mark — whenever it
+was recorded — and that hold is different: triaging the finding brings the same
+wrap back, with no new wrap needed. Check the
 release this call returns: `wrapped` should read `true`. If it reads `false`,
 the store does not count this wrap: a part is not merged or cancelled, a high
-finding is unresolved, the release has no parts, or something changed while you
-wrapped — re-read the release and say which. A store
+finding is unresolved, a finding is `open` on a project that requires triage, the
+release has no parts, or something changed while you wrapped — re-read the release and say which. A store
 older than the mark ignores the field: the release it returns carries no
 `wrapped` — say so and carry on.
 

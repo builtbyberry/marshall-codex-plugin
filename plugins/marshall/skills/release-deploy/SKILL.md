@@ -46,6 +46,10 @@ from conversation memory or a local file.
 If `set_deploy_step` returns `deploy_blocked`, the readiness gate is refusing the
 deploy because the release has unresolved high-severity findings — surface them
 and stop; resolve them via `$release-wrap` (or `resolve_finding`) first. If it
+returns `untriaged_findings`, the project requires every finding triaged
+(`config.require_triage`) and the findings in `blocking` are still `open` — surface
+them and stop; fix, accept or defer each one via `$release-wrap` (or
+`resolve_finding`), then start again. If it
 returns `invalid_transition`, you tried to skip a step — re-read `deploy.step` and
 continue from there.
 
@@ -129,7 +133,10 @@ On invocation, `release_get { release }` and read `deploy.step`:
 2. **Trip the readiness gate BEFORE the irreversible merge.** `set_deploy_step {
    release, step: 'merging' }` — this creates the one deploy record and runs the
    gate. If it returns `deploy_blocked`, **stop and do not merge**: the release has
-   unresolved high findings; surface them and route to `$release-wrap`. The
+   unresolved high findings; surface them and route to `$release-wrap`. If it
+   returns `untriaged_findings`, **stop and do not merge** either: the project
+   requires every finding triaged and the ones in `blocking` are still `open`;
+   route to `$release-wrap` to fix, accept or defer them. The
    merge auto-deploys on `laravel-cloud`, so the gate must clear *before* the
    merge, not after. (Idempotent on resume; if `deploy.step` is already
    `deploying`+, the merge already happened — skip to Step 2.)
@@ -335,7 +342,8 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
 1. **Gate, then merge.** `set_ship_step { release, step: "merging" }` creates (or
    idempotently resumes) the record and trips the readiness gate. A
    `deploy_blocked` means unresolved high findings — stop, surface them, route to
-   `$release-wrap`. Only once it clears, surface
+   `$release-wrap`. An `untriaged_findings` means the project requires every
+   finding triaged and some are still `open` — stop the same way. Only once it clears, surface
    `gh pr merge <N> --merge --delete-branch` for the **operator** to run.
 2. **Date the CHANGELOG.** Stamp the release heading with today's date and commit,
    then record it: `set_ship_step { release, step: "dating", merged_by,
@@ -386,5 +394,5 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
   default branch has usually moved past the release, and a tag on the wrong commit
   is worse than none: it answers "what was this version" incorrectly, forever.
 - **Surface store errors verbatim** — `deploy_blocked` (resolve high findings
-  first), `invalid_transition` (re-read the step), `lease_lost` — never work
+  first), `untriaged_findings` (triage the open findings first), `invalid_transition` (re-read the step), `lease_lost` — never work
   around them.
