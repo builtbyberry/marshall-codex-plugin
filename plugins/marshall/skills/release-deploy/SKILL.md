@@ -49,7 +49,11 @@ and stop; resolve them via `$release-wrap` (or `resolve_finding`) first. If it
 returns `untriaged_findings`, the project requires every finding triaged
 (`config.require_triage`) and the findings in `blocking` are still `open` — surface
 them and stop; fix, accept or defer each one via `$release-wrap` (or
-`resolve_finding`), then start again. If it
+`resolve_finding`), then start again. If it returns `unsettled_parts`, a part of
+the release is neither merged nor cancelled — the release is still being built.
+`blocking` names each part (`id`, `slug`, `title`, `state`, and `archived`: an
+archived part still counts). Surface them and stop; land or cancel each one, then
+start again. If it
 returns `invalid_transition`, you tried to skip a step — re-read `deploy.step` and
 continue from there.
 
@@ -120,7 +124,8 @@ On invocation, `release_get { release }` and read `deploy.step`:
    the operator may go on. A store older than the mark sends no `wrapped` — say you
    cannot tell whether wrap was run. The store-side gate is the real backstop —
    `set_deploy_step` will refuse with `deploy_blocked` if any high finding is
-   unresolved.
+   unresolved, and with `unsettled_parts` if any part is neither merged nor
+   cancelled. That refusal is the every-part-landed check.
 
 ## The flow
 
@@ -136,7 +141,10 @@ On invocation, `release_get { release }` and read `deploy.step`:
    unresolved high findings; surface them and route to `$release-wrap`. If it
    returns `untriaged_findings`, **stop and do not merge** either: the project
    requires every finding triaged and the ones in `blocking` are still `open`;
-   route to `$release-wrap` to fix, accept or defer them. The
+   route to `$release-wrap` to fix, accept or defer them. If it returns
+   `unsettled_parts`, **stop and do not merge**: the parts in `blocking` are
+   neither merged nor cancelled, so the release is not finished; surface them, and
+   land or cancel each one before starting again. The
    merge auto-deploys on `laravel-cloud`, so the gate must clear *before* the
    merge, not after. (Idempotent on resume; if `deploy.step` is already
    `deploying`+, the merge already happened — skip to Step 2.)
@@ -275,9 +283,10 @@ them. Do not attempt to reverse migrations. There is no auto-rollback.
 
 ## After the deploy
 
-When the deploy reaches `done`/`shipped`, the release is shipped. If this skill is
-driving a release component's lifecycle, mark it merged and release its claim per
-`$release-topic` step 5–6. The release's derived phase is now `shipped`
+When the deploy reaches `done`/`shipped`, the release is shipped. There is no part
+left to mark merged here: the store refused to start the deploy while any part was
+unsettled (`unsettled_parts`). A part reopened after the start does not stop the
+deploy; land or cancel it on its own. The release's derived phase is now `shipped`
 (from `deploy.step === 'done'`).
 
 ### Delivery after cut-over
@@ -343,7 +352,9 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
    idempotently resumes) the record and trips the readiness gate. A
    `deploy_blocked` means unresolved high findings — stop, surface them, route to
    `$release-wrap`. An `untriaged_findings` means the project requires every
-   finding triaged and some are still `open` — stop the same way. Only once it clears, surface
+   finding triaged and some are still `open` — stop the same way. An
+   `unsettled_parts` means a part in `blocking` is neither merged nor cancelled —
+   stop, surface it, and land or cancel it first. Only once it clears, surface
    `gh pr merge <N> --merge --delete-branch` for the **operator** to run.
 2. **Date the CHANGELOG.** Stamp the release heading with today's date and commit,
    then record it: `set_ship_step { release, step: "dating", merged_by,
@@ -376,8 +387,8 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
 - **Record evidence, don't execute.** `merged_by`, `merge_sha`, `changelog_date`,
   `tag`, `release_url` are reported by the operator and stored verbatim — the
   store does not verify them, so do not invent or guess a value.
-- **The readiness gate is the same gate.** `deploy_blocked` blocks a tag exactly
-  as it blocks a deploy.
+- **The readiness gate is the same gate.** `deploy_blocked`, `untriaged_findings`
+  and `unsettled_parts` block a tag exactly as they block a deploy.
 
 ## Guardrails
 
@@ -394,5 +405,6 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
   default branch has usually moved past the release, and a tag on the wrong commit
   is worse than none: it answers "what was this version" incorrectly, forever.
 - **Surface store errors verbatim** — `deploy_blocked` (resolve high findings
-  first), `untriaged_findings` (triage the open findings first), `invalid_transition` (re-read the step), `lease_lost` — never work
+  first), `untriaged_findings` (triage the open findings first), `unsettled_parts`
+  (land or cancel the parts first), `invalid_transition` (re-read the step), `lease_lost` — never work
   around them.
