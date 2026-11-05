@@ -141,14 +141,36 @@ by `-`. The main checkout is
    `mcp__marshall__set_component_state { component, state: "merged" }`. This is
    separate from the lock — releasing the claim alone does NOT mark it merged,
    so a merged blocker won't open its dependents until you set this.
+   - **Refused with `missing_gate_records`.** A project can require gate records
+     (`config.required_gates` on `mcp__marshall__release_get`). The move to `merged` is
+     then refused while a required gate has no **passed** record of its kind — the
+     error carries `missing` (the gates it lacks) and `required`, and nothing
+     changed. **Stop and name the missing gates.** Record a gate with
+     `mcp__marshall__record_gate` as `passed` only if it really ran, then mark the part
+     merged again. A waiver does not count, and you never write one to get past
+     the refusal: the only other way past is the operator's **Merge anyway** on the
+     release screen, with a reason. The part has not landed in the store, so do
+     not go on to step 6. Whatever hold you had stays exactly as it was — the
+     refused move changed nothing, so a part still `in_progress` keeps even the
+     hold `in_progress` took for you. That one is gone only if the part had
+     already moved on to `proposed`.
    - **Landing several at once** (a wave's PRs merging together): use the batch
      tool instead of a call per component —
      `mcp__marshall__set_component_states { states: [{ component, state: "merged" }, ...] }`.
      One transaction, one minimal ack, and the next wave's startability is
-     computed once rather than N times. It is all-or-nothing: an illegal item
-     rolls the whole batch back with `batch_item_failed` naming the item **by
-     index** and its `from`/`to` — surface that, fix the named item, re-send the
-     whole batch. Never decompose a rejected batch into singular calls.
+     computed once rather than N times. It is all-or-nothing: one item the store
+     will not apply rolls the whole batch back with `batch_item_failed`, naming the
+     item **by index** (and its `item_ref`) and its `reason` — nothing in the batch
+     moved. Read the reason:
+     - `reason: "invalid_transition"`, with `from`/`to` → re-read that part's live
+       state, correct the move you asked for, and re-send the whole batch.
+     - `reason: "missing_gate_records"`, with `missing`/`required` → editing the
+       item cannot fix it. **Stop this landing**: name the part and its missing
+       gates, exactly as for a single refusal above. Re-send the original batch
+       once each has a `passed` record; landing the others without that part is
+       the operator's call, not yours.
+
+     Never decompose a rejected batch into singular calls.
 6. Then release the lock (`$release-unclaim` or `mcp__marshall__release_claim`).
 
 ## Taking the claim — fresh, continuing, or lapsed
@@ -167,8 +189,10 @@ recovering from `lease_lost`:
      ```
      Held by you on <hold.machine> in <hold.worktree> via <hold.agent> — another session is working it; stopping.
      ```
-     If that session is gone (its worktree deleted, its Mac elsewhere), the hold
-     frees itself when its lease lapses; to take it sooner, the operator revokes it
+     If that session is gone (its worktree deleted, its Mac elsewhere), a leased
+     hold frees itself when its lease lapses. A hold whose `hold.expires_at` is
+     `null` has no lease and never frees itself (see **The hold `in_progress`
+     takes for you**). To take either sooner, the operator revokes it
      (`mcp__marshall__revoke_claim`) and you start again.
    - They match, or the hold carries no location (an older store) → do not
      re-claim (a live re-claim throws `claim_conflict` even for the same holder);
@@ -192,6 +216,48 @@ recovering from `lease_lost`:
    ```
    Held by <current_holder> on <hold.machine> via <hold.agent> — stopping.
    ```
+
+## The hold `in_progress` takes for you (solo-lite)
+
+`mcp__marshall__set_component_state { component, state: "in_progress" }` takes a hold for
+your actor itself when nobody holds the part — no `claim_component` call. It is
+still a real lock: when a **different** actor holds the part, the move is refused
+with `claim_conflict` and the state does not change. Only the single-part tool does
+this; `mcp__marshall__set_component_states` (the batch) takes and hands back no hold.
+
+- **Non-expiring while the store's switch is on.** The store's
+  `solo_lite_coordination` switch is deployment-wide, on by default, and can be
+  flipped at runtime. While it is on, the auto-acquired hold has no lease: the
+  part's `hold.expires_at` in `mcp__marshall__release_get { release, view: "full" }`
+  reads `null`, the hold never lapses, and it needs no heartbeat to stay alive.
+  With the switch off it lapses like any claim — its expiry runs from its last
+  beat (or its acquisition) plus the standard lease — and that applies to holds
+  taken while the switch was on, so a quiet one may already have lapsed. Read
+  `hold.expires_at` each time rather than remembering the switch: `null` is the
+  non-expiring hold; a time is a lease you must beat.
+- **Handed back when the part leaves `in_progress`.** Moving it to `proposed`,
+  `merged`, `open` or `cancelled` with `set_component_state` releases the
+  auto-acquired hold. An explicit claim is never released this way — that still
+  takes `mcp__marshall__release_claim`.
+- **It never replaces a hold you already have.** When your actor already holds the
+  part — this procedure's explicit claim, or an earlier auto-acquired hold —
+  `in_progress` keeps that hold as it is. So a fresh run of this procedure (claim,
+  then `in_progress`) holds a **leased** claim and beats it as step 4 says. A
+  continued part may still carry the auto-acquired hold an earlier session took;
+  **Taking the claim** keeps it, and its `hold.expires_at` says which you have.
+- **It carries less than a claim.** It records your actor's machine at most — no
+  `agent`, no `worktree` — and it does not check that the part is startable
+  (blockers, graph), so confirm that first. A missing worktree never shows that a
+  hold is this session's: **Taking the claim** step 1 still compares whatever
+  location is there before you beat it. A beat on the auto-acquired hold succeeds
+  and records the location fields; it does not give the hold a lease.
+- **When the heartbeat path is unnecessary.** Only while your hold reads
+  `hold.expires_at: null` — one operator, one session, one part, moved to
+  `in_progress` without `claim_component`. Beat it once with the location fields so
+  the store shows where you work; after that it needs no cadence. Whenever another
+  session, agent or machine could touch the release — a wave always — take the
+  explicit claim with this procedure: its lease is what frees a part whose worker
+  died.
 
 ## Recovering a lost claim (context compaction)
 

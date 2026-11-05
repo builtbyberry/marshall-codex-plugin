@@ -54,8 +54,9 @@ sit side by side — the run never duplicates drift or re-implements the lock.
   **Closing a run** below.
 - `mcp__marshall__heartbeat_claim` / `mcp__marshall__release_claim` — the per-component lock
   lifecycle. The wave does **not** claim members itself: each member's claim is
-  taken once by `$release-topic` during per-member setup (it claims, then cuts
-  the branch/worktree), and the subagent heartbeats that claim while it works.
+  taken once by `$release-topic` during per-member setup (it claims, then
+  reuses, attaches or creates the member's worktree), and the subagent heartbeats
+  that claim while it works.
 
 If the MCP server isn't connected, **stop and say so** — the `dispatch_run` is
 the only place a wave is durable; never drive a fan-out from conversation memory
@@ -178,7 +179,7 @@ In order, stop on the first failure with a clear message:
 
 Resolve the member set:
 
-- explicit ids/refs from the user (`/release-parallel #41 #42 #45`, or "start
+- explicit ids/refs from the user (`$release-parallel #41 #42 #45`, or "start
   wave 2") → use them as-is; the graph guard validates them.
 - no ids → `mcp__marshall__release_next { release }` and propose the top startable
   components as the wave. **Confirm the set with the user** before dispatching —
@@ -198,19 +199,34 @@ durable; everything below reports against it.
 
 For each admitted member, in parallel:
 
-1. **Claim + worktree via `$release-topic --worktree`.** This is the *single*
-   place the member is claimed: release-topic claims the component (the
-   cross-machine lock) **and** cuts `<type>/<release>-<ref>-<slug>` from the active
-   release branch as a **sibling git worktree**. The wave never issues its own
+1. **Set the member up through `$release-topic --worktree`.** This is the
+   *single* place the member is claimed, and release-topic runs its own procedure
+   in its own order: its **reuse rule** checks first (a stop comes before any
+   claim), then **Taking the claim**, then `in_progress` (only from `open`), then
+   the checkout its reuse rule picked — reuse a checkout already on the part's
+   `topic_branch`, attach to that branch if it exists, or create it off the active
+   release branch as a **sibling git worktree** — then one beat with the location
+   fields. The wave restates none of it, and never issues its own
    `claim_component` — a live re-claim throws `claim_conflict` even for the same
    holder, so one owner takes the lock and that owner is release-topic. Capture the
-   resulting claim `id` + `fence`.
-   - **`claim_conflict`** → someone else already holds it (the error names the
-     holder). Do **not** set it up or spawn it; drop it from the wave and carry it
-     into the wave-wide report below as `{ member, status: "failed", note:
-     "claim_conflict: held by <holder>" }` so the board reflects reality.
-2. **Mark the work started** once the claim is held: `mcp__marshall__set_component_state
-   { component, state: "in_progress" }`.
+   resulting claim `id` + `fence` and the worktree path.
+   - **release-topic stops** → do **not** spawn a subagent for the member. Drop it
+     from the wave and carry it into the wave-wide report below as `{ member,
+     status: "failed", note }`, so the board says why. `failed` is retry-able (see
+     **Resume**). The note names the stop:
+     - `claim_conflict: held by <holder>` — someone else holds it (the error names
+       the holder).
+     - `held by you on <machine> in <worktree>` — your actor holds it from another
+       session; that session is working it.
+     - `b′: <branch> checked out in <path>` — the branch is checked out in another
+       worktree; the work belongs there.
+     - `revoked: re-claim only on the operator's say-so` — its last claim was
+       revoked.
+     - `not_startable: <reason>` — its blockers or the graph changed after
+       `dispatch_open`.
+2. **Do not set `in_progress` again.** release-topic has already moved the part to
+   `in_progress` (only from `open`). A second `mcp__marshall__set_component_state { component,
+   state: "in_progress" }` is an `invalid_transition`.
 3. **Spawn one Claude subagent** scoped to that worktree (see **The subagent
    brief**). Spawn all members' subagents in one batch so they run concurrently —
    this is the parallel dispatch the skill exists for.
@@ -222,6 +238,7 @@ For each admitted member, in parallel:
      reports: [
        { member: <member id>, status: "dispatched", note: "<branch> @ <worktree path>" },
        { member: <member id>, status: "failed",     note: "claim_conflict: held by <holder>" },
+       { member: <member id>, status: "failed",     note: "b′: <branch> checked out in <path>" },
        ...
      ]
    }
@@ -229,8 +246,8 @@ For each admitted member, in parallel:
 
    A wave dispatches N members at once, so this is one round trip and one minimal
    ack (`{ reported, members: [...] }`) instead of N. Mixed statuses in the same
-   call are fine — the members that were set up report `dispatched`, the ones that
-   lost their claim report `failed`, together.
+   call are fine — the members that were set up report `dispatched`, the ones
+   release-topic stopped report `failed`, together.
 
    The batch is **all-or-nothing**: an unknown member fails with
    `dispatch_member_not_found` before any write, and an illegal transition rolls
@@ -251,6 +268,15 @@ beating a set of landed PRs from `proposed` to `merged` — use
 `mcp__marshall__dispatch_reports { reports: [{ member, status: "merged",
 note? }, ...] }` rather than looping the singular tool. **Singular for one member,
 batch for many** is the whole rule.
+
+`dispatch_reports` moves only the board. When the orchestrator does land the parts'
+work-state — `mcp__marshall__set_component_states { states: [{ component, state: "merged" },
+...] }` — read a `batch_item_failed` exactly as `$release-topic`'s step 5
+does; it is not restated here. On `reason: "missing_gate_records"` nothing in the
+batch moved: **stop that landing**, and leave the refused part's member at
+`proposed` with the note `missing_gate_records: <missing>`. Report a member
+`merged` only when its part's state actually moved.
+
 Auto-merging / auto-wrapping dispatched work is **out of scope** — this skill
 dispatches and reports; landing each PR is the normal per-component lifecycle.
 
@@ -263,9 +289,13 @@ id + fence**. Its standing instructions:
 
 1. Work only inside its worktree on its branch; do not touch sibling worktrees or
    the main checkout.
-2. **Heartbeat its claim** (`mcp__marshall__heartbeat_claim { claim }`) during long
-   work. If a heartbeat returns `lease_lost`, **stop** and report `failed` — the
-   lock was lost or revoked; do not keep writing.
+2. **Heartbeat its claim with its location** —
+   `mcp__marshall__heartbeat_claim { claim, agent: "codex", machine: <machine>, worktree: <worktree path> }`,
+   with `machine` read as `$release-topic`'s **Reporting where you work**
+   says and `worktree` its member worktree — as it finishes each meaningful chunk
+   of the work and immediately before a long-running operation (a full test run,
+   static analysis). If a heartbeat returns `lease_lost`, **stop** and report
+   `failed` — the lock was lost or revoked; do not keep writing.
 3. **Report progress at meaningful checkpoints** via `mcp__marshall__dispatch_report {
    member, status, note }`, advancing through the lifecycle:
    - `in_progress` when it starts (with a one-line plan in `note`),
@@ -274,9 +304,16 @@ id + fence**. Its standing instructions:
      signal for a retry on the next invocation),
    - `merged` only if its PR actually lands in this session (usually it stops at
      `proposed`; merging is a separate decision).
-   Keep `set_component_state` in step with the work-state (`in_progress` →
-   `proposed` → `merged`) — that's the lock-adjacent work-state; `dispatch_report`
-   is the wave's semantic progress. They mirror, they don't duplicate.
+   The part is already `in_progress` — release-topic set it during setup — so it
+   never sets `in_progress` again. It moves the work-state on with
+   `set_component_state`: `proposed` with its PR, `merged` if the PR lands. That is
+   the lock-adjacent work-state; `dispatch_report` is the wave's semantic progress.
+   They mirror, they don't duplicate.
+   - If `merged` is refused with `missing_gate_records`, nothing moved: leave the
+     part and the member at `proposed`, report `{ member, status: "proposed", note:
+     "missing_gate_records: <missing>" }`, keep the claim, and stop. What the
+     refusal means and the way past it are `$release-topic`'s step 5,
+     **Refused with `missing_gate_records`**.
 4. It does **not** open or close the run, claim other components, or merge other
    members' work.
 

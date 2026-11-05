@@ -44,7 +44,12 @@ Changing what either of those skills does is **out of scope** (see Guardrails).
   timer to remember. Every beat passes the three location fields —
   `{ component, agent: "codex", machine, worktree }`, determined as
   `$release-topic`'s **Reporting where you work** says. A `lease_lost` is a
-  stop — run release-topic's **Taking the claim** rule before continuing.
+  stop — run release-topic's **Taking the claim** rule before continuing. A claim
+  Step 1 takes fresh is leased, so this cadence keeps it alive. A resumed part can
+  instead still carry the store's non-expiring `in_progress` auto-hold — its
+  `hold.expires_at` reads `null` — which stays alive with no beat; beats still
+  carry its location. Which one you hold, and what each needs, is release-topic's
+  **The hold `in_progress` takes for you** — not restated here.
 - `mcp__marshall__set_component_state` — move the work-state:
   `in_progress` (Step 1, only from `open`) → `proposed` (PR open, Step 9) → `merged` (landed, Step 9).
   Marking it `merged` is what unblocks dependents; releasing the claim alone does not.
@@ -229,10 +234,12 @@ never guess.
 
 A project can require gate records. Its required gates are `config.required_gates` on
 `mcp__marshall__release_get` — any of `plan_pressure_tested`, `guards_proven`,
-`fixes_verified`; an empty list, the default, requires none. While a part has no
+`fixes_verified`; an empty list, the default, requires none, and so does an absent
+`required_gates` key — a store older than the setting enforces nothing. While a part has no
 record of a required gate, the store refuses its move to `merged` with
-`missing_gate_records`, naming the gates in `missing`. Any record of the kind
-satisfies it, `passed` or `waived`.
+`missing_gate_records`, naming the gates in `missing`. Only a `passed` record of the
+kind satisfies it — any passed record, even one a later waiver superseded. A `waived`
+record never does.
 
 Recording the gates as they run (Steps 3, 5, 8) is what keeps this from ever firing.
 When it does — Step 9's own check finds a required gate with no record, or the store
@@ -656,9 +663,10 @@ can be fixed inside the acceptance criteria.
   On a resumed run that finds them already on the part, send the summary again only
   if this run changed what it should say.
 - **Then check the gates the project requires**, before the PR is merged. Read
-  `config.required_gates` from `mcp__marshall__release_get`. If a required gate still has
-  no current record — an outbox line the store has not taken does not count; the
-  store cannot see it, so name it as owed — **stop and name the missing gate**, and
+  `config.required_gates` from `mcp__marshall__release_get` (an absent key, from a store
+  older than the setting, requires none). If a required gate still has
+  no `passed` record — a waiver does not count, and neither does an outbox line the
+  store has not taken; the store cannot see it, so name it as owed — **stop and name the missing gate**, and
   **never write a waiver to get past it** (see **A merge the store refuses**). The
   part stays `proposed` with its PR open and unmerged, and the claim stays held.
   Stopping before the merge keeps the PR and the store in step. This holds on both

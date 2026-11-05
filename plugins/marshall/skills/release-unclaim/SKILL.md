@@ -16,10 +16,20 @@ Return a claim to the shared Marshall store so the component is free for someone
 
 ## Procedure
 
-1. Identify the claim. If you don't have the claim id, run `$release-status`
+1. Identify the claim. If you don't have the claim id, call `mcp__marshall__release_status`
    to find who holds what (each hold carries its claim id).
 2. Choose the path:
-   - **Your own claim, work done or paused** → `mcp__marshall__release_claim { claim }`.
+   - **Your own claim, work paused** → `mcp__marshall__release_claim { claim }`.
+   - **Your own claim, work landed** (its PR merged) → mark it merged **before**
+     you release: `mcp__marshall__set_component_state { component, state: "merged" }`,
+     then `mcp__marshall__release_claim { claim }`. (If the hold was the one `in_progress`
+     took for you, the move to `merged` already handed it back, and the release is
+     a harmless no-op.) If the move is refused with `missing_gate_records`,
+     nothing changed: **stop before releasing** and name the missing gates — the
+     part is not merged in the store, and its dependents stay blocked. Release
+     anyway only if the operator says to. What the refusal means and the way past
+     it are `$release-topic`'s step 5, **Refused with
+     `missing_gate_records`**.
    - **A stuck or dead hold** (the holder's machine went away, the lease is
      stale) → `mcp__marshall__revoke_claim { claim }`. Confirm with the user first —
      revoking pulls the lock out from under whoever held it.
@@ -31,7 +41,7 @@ Return a claim to the shared Marshall store so the component is free for someone
 - Prefer `release_claim` for your own work; reserve `revoke_claim` for genuine
   recovery, and confirm before revoking someone else's hold.
 - Releasing doesn't undo committed work — it only frees the coordination lock.
-- **Releasing is not "done."** If the work merged, also mark the component
-  merged: `mcp__marshall__set_component_state { component, state: "merged" }`.
-  Releasing the lock alone leaves the component `open`, so its dependents stay
-  blocked until you mark it merged.
+- **Releasing is not "done."** Releasing changes the claim, not the work-state:
+  the component stays in whatever state it was in. A part whose PR merged stays
+  unmerged in the store, and its dependents stay blocked, until it is marked
+  merged (step 2).

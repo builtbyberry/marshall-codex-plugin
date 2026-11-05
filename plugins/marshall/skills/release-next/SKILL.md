@@ -86,7 +86,8 @@ For each recommendation (already ranked by what it unblocks):
 
 End with:
 
-- `start <ref>` to begin work — claim it with `mcp__marshall__claim_component`
+- `start <ref>` to begin work — that runs `$release-topic`, which claims it
+  with this session's agent, machine and worktree and picks the checkout to work in
 - to take more than one, claim each with `$release-topic`, or dispatch a whole
   wave concurrently with `$release-parallel`
 
