@@ -141,6 +141,11 @@ by `-`. The main checkout is
    `mcp__marshall__set_component_state { component, state: "merged" }`. This is
    separate from the lock — releasing the claim alone does NOT mark it merged,
    so a merged blocker won't open its dependents until you set this.
+   **Read the part first** (`mcp__marshall__release_get`): a host plugin that records a
+   successful `gh pr merge` on its own (and says so to you) may already have moved
+   it. When it is already `merged`, skip the call — `merged` → `merged` is an
+   `invalid_transition` — and go on to step 6. A `merge_sha` already on the part is
+   left as it is.
    - **Refused with `missing_gate_records`.** A project can require gate records
      (`config.required_gates` on `mcp__marshall__release_get`). The move to `merged` is
      then refused while a required gate has no **passed** record of its kind — the

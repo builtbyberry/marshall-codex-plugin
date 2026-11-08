@@ -655,13 +655,18 @@ can be fixed inside the acceptance criteria.
   this run already holds — the record of a gate that ran, or Step 5's waiver for a
   part with no guard to prove. It is not where a gate the project requires gets waived:
   a required gate this run holds nothing for stays unrecorded, for the check below.
+- **Read the part before each landing write** (`mcp__marshall__release_get`) and skip any
+  write whose value it already carries: a resumed run, or a host plugin that records a
+  successful `gh pr create` or `gh pr merge` on its own (and says so to you), may
+  already have made it. Writing it again is an `invalid_transition`, not a fix.
 - Open/update the component PR → **`set_component_state proposed`** — skip the call
-  when the part is already `proposed` (a run resumed after the stop below:
-  `proposed` → `proposed` is an `invalid_transition`).
+  when the part is already `proposed` (a run resumed after the stop below, or the
+  plugin that recorded the PR: `proposed` → `proposed` is an `invalid_transition`).
 - **Write the closing summary and the pull request** (see **The landing facts**):
   `mcp__marshall__component_update { component, closing_summary, pull_request: { number, url }, return: "minimal" }`.
-  On a resumed run that finds them already on the part, send the summary again only
-  if this run changed what it should say.
+  When the part already carries this PR as its `pull_request`, leave `pull_request`
+  out and send `closing_summary` alone. On a resumed run that finds the summary
+  already on the part, send it again only if this run changed what it should say.
 - **Then check the gates the project requires**, before the PR is merged. Read
   `config.required_gates` from `mcp__marshall__release_get` (an absent key, from a store
   older than the setting, requires none). If a required gate still has
@@ -673,7 +678,10 @@ can be fixed inside the acceptance criteria.
   settings of the merge dial.
 - **Merge dial** (reached only with every required gate on the record, or none required):
   - autonomous → when clean (no unfixable high, gates green, no ambiguity), merge,
-    then **`set_component_state merged`**. If the store still refuses it with
+    read the part again, then **`set_component_state merged`** — skip it when the part
+    is already `merged`. A part that carries the merge commit as `merge_sha` but is
+    still `proposed` had its `merged` move refused after the commit was written: set
+    `merged` alone and never write `merge_sha` again. If the store still refuses it with
     `missing_gate_records` — a record went missing, or the setting changed, between
     the check and the merge — that is the same stop: name the gates in its `missing`
     list, leave the part `proposed` and the claim held, and write no waiver.
@@ -681,7 +689,8 @@ can be fixed inside the acceptance criteria.
     who (or a follow-up) sets `merged`.
 - `merged` is what unblocks dependents — set it on merge, not just at unclaim.
 - **Write the merge commit**, right after setting `merged` (see **The landing
-  facts**): `mcp__marshall__component_update { component, merge_sha, return: "minimal" }`.
+  facts**): `mcp__marshall__component_update { component, merge_sha, return: "minimal" }` —
+  skip it when the part's `merge_sha` already holds that commit.
 - Release the claim (`$release-unclaim`), and hand back:
   `$release-next` if components remain, else `$release-wrap`.
 

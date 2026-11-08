@@ -309,6 +309,12 @@ id + fence**. Its standing instructions:
    `set_component_state`: `proposed` with its PR, `merged` if the PR lands. That is
    the lock-adjacent work-state; `dispatch_report` is the wave's semantic progress.
    They mirror, they don't duplicate.
+   - **Read the part before each of those writes** (`mcp__marshall__release_get`) and skip
+     one whose value is already there — `proposed` or `merged`, its `pull_request`,
+     its `merge_sha`. A host plugin that records a successful `gh pr create` or
+     `gh pr merge` on its own (and says so) may already have written it, and
+     writing it again is an `invalid_transition`. The `dispatch_report` is still
+     the subagent's to send: no plugin reports wave progress.
    - If `merged` is refused with `missing_gate_records`, nothing moved: leave the
      part and the member at `proposed`, report `{ member, status: "proposed", note:
      "missing_gate_records: <missing>" }`, keep the claim, and stop. What the
