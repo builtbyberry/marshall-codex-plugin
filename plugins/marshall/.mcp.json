@@ -34,6 +34,12 @@
                 },
                 "lenses_applicable": {
                     "approval_mode": "approve"
+                },
+                "worker_list": {
+                    "approval_mode": "approve"
+                },
+                "autonomy_get": {
+                    "approval_mode": "approve"
                 }
             }
         }

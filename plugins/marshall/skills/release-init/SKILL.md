@@ -70,6 +70,12 @@ picker; Linear has **no console equivalent** (`srm:import-release` reads through
 `/releases/import`. Do not try to fabricate the project/release any other way — the
 store is the only place they can be born.
 
+**Autonomy refusals.** `worker_paused` (stop, say who paused it and when, wait for the
+person), `lease_lost` after a stop (stop, do not re-claim), `autonomy_disabled`,
+`looser_than_release` and `not_authorized` wrote nothing: surface the body and never
+retry one in a loop. `$release-topic`'s **Autonomy — the claim's mode and the
+refusals** says what each means and what to do.
+
 ## Procedure
 
 1. **Gather the release inputs** (ask; don't guess):

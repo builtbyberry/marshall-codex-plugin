@@ -56,7 +56,9 @@ it.
 - `mcp__marshall__component_update` — amend a component that is
   **already filed**, by its `component` id (ULID); `source` is identity and cannot
   change. This is the fix for a typo'd title or a revised deploy-safety answer — **not**
-  a second `component_create` (see **Amending a filed component** below).
+  a second `component_create` (see **Amending a filed component** below). It is also
+  the only way to set a part's autonomy (see **A part's autonomy** below):
+  `component_create` and `release_create` take no autonomy fields.
 
 If the MCP server isn't connected, **stop and say so** — the store is the only
 place the plan can land; do not fall back to filing tracker issues or writing a
@@ -68,6 +70,12 @@ seeded yet, the fix is `$release-init` (`release_create`), or importing the
 collection that backs it — `php artisan srm:import-release <repo> <milestone>` for
 GitHub, the web picker at `/releases/import` for any tracker with a driver
 behind it. Not a write from here.
+
+**Autonomy refusals.** `worker_paused` (stop, say who paused it and when, wait for the
+person), `lease_lost` after a stop (stop, do not re-claim), `autonomy_disabled`,
+`looser_than_release` and `not_authorized` wrote nothing: surface the body and never
+retry one in a loop. `$release-topic`'s **Autonomy — the claim's mode and the
+refusals** says what each means and what to do.
 
 ## Invocation
 
@@ -254,6 +262,32 @@ For each component, **one at a time** — no batch-create:
 File each confirmed component with its own `component_create` call as you go —
 **never** collect them and batch-create at the end. Each one gets its own `yes`.
 
+### A part's autonomy — only when the operator wants it
+
+What an agent may do with a part without asking — `agent_ok` (may an agent take it at
+all), `autonomy_level` (`suggest`, `pr_and_wait`, `merge`) and `merge_to_main`
+(`person`, `agent`) — is inherited from the release and the workspace unless the part
+sets its own. **Do not ask about it by default**; a part that sets nothing inherits,
+which is what most parts want. Ask per part only when the operator raises it ("an agent
+can't take this one", "make it wait for me"), and then, right after its
+`component_create` succeeds:
+
+```
+mcp__marshall__component_update {
+  component: "<the new component ULID>",
+  agent_ok?:       <true|false>,
+  autonomy_level?: "suggest" | "pr_and_wait" | "merge",
+  merge_to_main?:  "person" | "agent"
+}
+```
+
+A part may only be **stricter** than its release. `looser_than_release` names the
+`field`, the release's value (`release_value`) and its layer (`release_source`):
+surface it and offer a value as strict as the release's. `not_authorized` means the
+value is looser than the workspace's, which is a workspace owner's to set: say so.
+Either way the part is already filed, with nothing of the update written — never
+re-create it.
+
 ## Add mode
 
 `$release-plan <release> add` appends **a single** component to an existing
@@ -345,4 +379,7 @@ When the loop finishes, print:
 - **External ref is optional and skippable.** Default to skipping; omit the
   field entirely when there's no tracker link.
 - **Surface store errors verbatim.** A validation/workspace/duplicate error is a
-  hard stop, not something to work around.
+  hard stop, not something to work around, and so are `looser_than_release` and
+  `not_authorized` on a part's autonomy.
+- **Autonomy is asked for, not assumed.** Set a part's `agent_ok` or level only when
+  the operator wants one, with `component_update` after the create.
