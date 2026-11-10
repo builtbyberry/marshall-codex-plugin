@@ -52,6 +52,14 @@ sit side by side — the run never duplicates drift or re-implements the lock.
 - `mcp__marshall__dispatch_close` — the **manual** run-level terminal signal, for a
   finished or abandoned run. A run never closes itself by member aggregation. See
   **Closing a run** below.
+- `mcp__marshall__autonomy_get { release }` — the effective autonomy policy for the
+  release, with its `cap` (how many autonomous agents the workspace runs at once) and
+  `enabled` (whether the workspace's autonomy is switched on). See **Sizing the wave
+  to the policy**.
+- `mcp__marshall__worker_list` — every live worker in the workspace; the rows whose `mode`
+  is `autonomous` are what the cap counts.
+- `mcp__marshall__worker_pause` / `mcp__marshall__worker_stop` — pause or stop a member's claim,
+  on the operator's word (see **Pausing or stopping a wave**).
 - `mcp__marshall__heartbeat_claim` / `mcp__marshall__release_claim` — the per-component lock
   lifecycle. The wave does **not** claim members itself: each member's claim is
   taken once by `$release-topic` during per-member setup (it claims, then
@@ -61,6 +69,33 @@ sit side by side — the run never duplicates drift or re-implements the lock.
 If the MCP server isn't connected, **stop and say so** — the `dispatch_run` is
 the only place a wave is durable; never drive a fan-out from conversation memory
 or a local file.
+
+**Autonomy refusals.** `worker_paused` (stop, say who paused it and when, wait for the
+person), `lease_lost` after a stop (stop, do not re-claim), `autonomy_disabled`,
+`looser_than_release` and `not_authorized` wrote nothing: surface the body and never
+retry one in a loop. `$release-topic`'s **Autonomy — the claim's mode and the
+refusals** says what each means and what to do.
+
+## Sizing the wave to the policy
+
+**Every member of a wave is autonomous work.** `dispatch_open` makes each member's
+claim autonomous (operator runbook §30.5), so the store holds it to the part's
+autonomy policy — `agent_ok`, the level, and the workspace's cap on autonomous
+agents. While the release's `autonomy.enabled` (or `autonomy_get`'s `enabled`) is
+`false`, or on a store that reports no autonomy at all, nothing below applies.
+Otherwise, when proposing a wave:
+
+- **Leave out a part whose `agent_ok` is off** — its summary entry's
+  `autonomy.agent_ok` in `release_next` / `release_get` (`autonomy.policy.agent_ok.value`
+  in the full view). Name each one and say it is a person's to take; the store would
+  refuse it `agent_not_allowed`.
+- **Cap the wave at the room left**: `autonomy_get { release }`'s `policy.cap.value`
+  minus the live autonomous claims — the `worker_list` rows whose `mode` is
+  `autonomous`. A store whose rows carry no `mode` cannot be counted: say so, and let
+  each claim's refusal decide. Propose the top startable parts up to that room and
+  name the rest as waiting.
+
+This is policy, not the dependency graph: it never overrides the graph guard below.
 
 ## Rely on the server-side graph guard — do not re-implement it
 
@@ -74,6 +109,14 @@ the user (or `release_next`) gave you and let the store decide. On return:
 - **rejected** members come back with their reason (unmet blocker, unverified
   graph). Surface each one verbatim; do **not** spawn a subagent for it. If the
   graph is `unverified`, route to `$release-graph` first.
+
+`dispatch_open` can also refuse the **whole** call, writing nothing:
+
+- `agent_not_allowed` — `parts` names members whose `agent_ok` is off. Surface them,
+  drop them from the set, confirm the smaller wave with the operator, then open it.
+- `agent_cap_reached` — the workspace already has `current` of `max` autonomous
+  agents live. Surface both numbers and stop: wait for one to end, or ask an owner
+  to raise the cap. Never retry it in a loop.
 
 This is the same fail-loud contract as the rest of the store: the guard is the
 backstop, not a warning to work around.
@@ -184,6 +227,9 @@ Resolve the member set:
 - no ids → `mcp__marshall__release_next { release }` and propose the top startable
   components as the wave. **Confirm the set with the user** before dispatching —
   a wave spawns N subagents and N worktrees; it's worth a beat.
+- either way, fit the set to the autonomy policy first — leave out parts whose
+  `agent_ok` is off and size it to the cap's room (see **Sizing the wave to the
+  policy**) — and say what was left out and why.
 
 ### Step 2 — Open the dispatch_run (the graph guard runs here)
 
@@ -224,6 +270,12 @@ For each admitted member, in parallel:
        revoked.
      - `not_startable: <reason>` — its blockers or the graph changed after
        `dispatch_open`.
+     - `agent_cap_reached: <current>/<max>` — the workspace's cap filled up: a wave
+       wider than the room left still opens, and the claim past the cap is the one
+       refused. Do not retry it; it waits for a later wave.
+     - `agent_not_allowed` — its `agent_ok` was turned off after the run opened.
+     - `worker_paused: workspace` — every worker in the workspace is paused, so no
+       claim can be taken until an owner resumes.
 2. **Do not set `in_progress` again.** release-topic has already moved the part to
    `in_progress` (only from `open`). A second `mcp__marshall__set_component_state { component,
    state: "in_progress" }` is an `invalid_transition`.
@@ -280,6 +332,22 @@ batch moved: **stop that landing**, and leave the refused part's member at
 Auto-merging / auto-wrapping dispatched work is **out of scope** — this skill
 dispatches and reports; landing each PR is the normal per-component lifecycle.
 
+## Pausing or stopping a wave
+
+On the operator's word — and only then — pause or stop members:
+
+- `mcp__marshall__worker_pause { claim }` pauses one member: its claim stays held with the
+  lease frozen and its writes wait. `mcp__marshall__worker_stop { claim }` stops it: the
+  claim is revoked and the member's sessions stop. Either takes `component` instead of
+  `claim`, or `all: true` for every worker in the workspace (a workspace owner's).
+- A paused member's subagent ends its run and says so; put the pause on the status
+  board from the answer, not with a `dispatch_report` (refused while paused).
+- **Resuming** a member — its claim is autonomous — is a person's, from the
+  **Workers** screen in Marshall: the store refuses an autonomous resume over MCP.
+  Say so and point there.
+- `autonomy_disabled` means the workspace's autonomy is off, so the kill switch is
+  too; `not_authorized` means the worker is not yours or `all: true` needs an owner.
+
 ## The subagent brief
 
 Each spawned subagent is scoped to exactly one component and its worktree. Hand
@@ -320,7 +388,18 @@ id + fence**. Its standing instructions:
      "missing_gate_records: <missing>" }`, keep the claim, and stop. What the
      refusal means and the way past it are `$release-topic`'s step 5,
      **Refused with `missing_gate_records`**.
-4. It does **not** open or close the run, claim other components, or merge other
+4. **It obeys its part's autonomy level** — its claim is autonomous — by running
+   `$release-build`, whose **The part's level** says how far it lands: `suggest`
+   reports back with no PR, `pr_and_wait` stops at `proposed` for a person's
+   **Approve merge**, `merge` lands.
+5. **A pause or a stop is a person's.** A heartbeat or write refused `worker_paused`
+   means a person paused it: stop at once, and end with what the refusal says — who
+   paused it and when (`paused_by.display_name`, `paused_at`). Do **not** send a
+   `dispatch_report`: the store refuses that too while the claim is paused. A
+   `lease_lost` after a stop means a person stopped it: stop, and do not re-claim.
+   Never resume a claim itself. The rest of the refusals are
+   `$release-topic`'s **Autonomy — the claim's mode and the refusals**.
+6. It does **not** open or close the run, claim other components, or merge other
    members' work.
 
 ## Guardrails
@@ -350,4 +429,8 @@ id + fence**. Its standing instructions:
   match (see **Resume**) — leaving a knowingly-stale `failed` on the board is a
   worse outcome than the divergence it was trying to avoid.
 - **Surface store errors verbatim** — `claim_conflict`, `not_startable`,
-  `lease_lost`, an open-run conflict — and stop. Never work around them.
+  `lease_lost`, an open-run conflict, `agent_not_allowed`, `agent_cap_reached`,
+  `worker_paused`, `autonomy_disabled`, `not_authorized` — and stop. Never work around
+  them, and never retry one in a loop.
+- **A wave fits the policy.** Leave out parts whose `agent_ok` is off, size the wave
+  to the cap's room, and let a person resume a paused member from the Workers screen.

@@ -29,6 +29,9 @@ machines.
 - `mcp__marshall__set_component_state` /
   `mcp__marshall__set_component_states` — move the work-state; the second is
   the batch counterpart for landing several at once (step 5).
+- `mcp__marshall__worker_resume` — resume a **supervised** claim of your own that a person
+  paused, and only when that person says so in chat (see **Autonomy — the claim's
+  mode and the refusals** below).
 
 ## Session setup — set the verbosity once, both directions
 
@@ -122,6 +125,11 @@ by `-`. The main checkout is
      holder (see **Taking the claim**).
    - **`not_startable`** → blockers unmet or the graph is `unverified`. Stop and
      explain; if unverified, run `$release-graph` first.
+   - **`agent_not_allowed`**, **`agent_cap_reached`** or **`worker_paused`** → the
+     autonomy rules or the kill switch refused the claim. Stop and say which, as
+     **Autonomy — the claim's mode and the refusals** below says.
+   - Read the claim's **`mode`** from the answer — `autonomous` or `supervised` — and
+     say which you hold. It decides what the rest of the work may do on its own.
 3. Only after a successful claim (or on finding you still hold it), mark the work
    started: `mcp__marshall__set_component_state { component, state: "in_progress" }` —
    **only when the part is `open`.** A continued part is already `in_progress`
@@ -136,7 +144,9 @@ by `-`. The main checkout is
    **immediately before a long-running operation** (a full test run, static
    analysis) — every beat with the same three location fields. If a heartbeat
    returns `lease_lost`, **stop** — the lease lapsed or was revoked; run
-   **Taking the claim** again before continuing.
+   **Taking the claim** again before continuing, unless a person stopped the worker
+   (below). A heartbeat refused **`worker_paused`** is a person pausing you: stop
+   work, as **Autonomy — the claim's mode and the refusals** says.
 5. When the PR **lands**, advance the work-state so dependents unblock:
    `mcp__marshall__set_component_state { component, state: "merged" }`. This is
    separate from the lock — releasing the claim alone does NOT mark it merged,
@@ -264,6 +274,55 @@ this; `mcp__marshall__set_component_states` (the batch) takes and hands back no 
   explicit claim with this procedure: its lease is what frees a part whose worker
   died.
 
+## Autonomy — the claim's mode and the refusals
+
+Every claim carries a **`mode`** the store decides; nothing you send sets it. It is
+**autonomous** when the part was a member of an open dispatch run when the claim was
+taken (`$release-parallel` opens the run, so its members' claims are autonomous),
+and **supervised** otherwise: a person in a terminal, an IDE, Desktop or the CLI. Read it
+from `claim_component`'s or `my_claims`' `mode`, or the part's `hold.mode` in
+`mcp__marshall__release_get` (full view; the summary view carries it as the part's `mode`).
+
+The part's effective policy is its `autonomy.policy` in `release_get`'s full view —
+`agent_ok`, `level` (`suggest`, `pr_and_wait`, `merge`) and `merge_to_main`
+(`person`, `agent`), each `{value, source}` with the layer it came from — and its
+`autonomy.approval` is the person's approval to merge it that still counts (`null`:
+none). `mcp__marshall__autonomy_get { component }` returns the same policy with every layer
+spelled out. The release's own block, `autonomy {enabled, policy, approval}`, says
+whether the workspace has autonomy switched on: while `enabled` is `false` nothing
+enforces the policy.
+
+**The policy binds autonomous claims only.** A supervised claim keeps today's flow:
+the person saying "merge it" or "deploy" in chat is enough, and a skill never sends a
+supervised person to the web to click an approval. A store that reports no `mode` and
+no `autonomy` block predates autonomy: treat the claim as supervised. One thing the
+store cannot tell apart: while a part is a member of an open run, its moves are gated
+even from a person's terminal (operator runbook §30.5). The release screen is the way
+past for a person; the web is never gated.
+
+**The refusals.** Each one wrote nothing. Surface it with what its body names and act
+as the table says — never retry one in a loop, and never route around it.
+
+| `error` | What it means | What to do |
+| --- | --- | --- |
+| `agent_not_allowed` | the part's `agent_ok` is off (`parts` names it) | leave the part out of autonomous work, or a person takes it |
+| `agent_cap_reached` | the workspace already has `current` of `max` autonomous agents live | wait for one to end, or ask an owner to raise the cap; take nothing past it |
+| `suggest_only` | the part is at level `suggest` | report back what you found with no pull request and no `proposed` move |
+| `approval_required` | the part is at `pr_and_wait` and no person approved it | leave it `proposed` with its PR open; a person clicks **Approve merge** for the part on the release page |
+| `merge_needs_person` | the release PR's merge to main is `person` and nobody approved the release | do not merge; a person clicks **Approve merge** on the release page, or merges it |
+| `worker_paused` | a person paused this claim (`pause_scope: claim`), or every worker in the workspace (`workspace`) | **stop.** Say who paused it and when (`paused_by.display_name`, `paused_at`), do not retry, and wait for the person |
+| `lease_lost` after a stop | a person stopped the worker: the claim was revoked (`claim_status: revoked`; the part's `last_worked.ended` reads `revoked`) | **stop.** Do not re-claim; the person decides what happens next |
+| `autonomy_disabled` | a `worker_*` tool while the workspace's `autonomy` flag is off | nothing to do but ask Marshall's platform admin to turn it on for the workspace (a workspace owner cannot) |
+| `looser_than_release` | a part's `autonomy_level` or `merge_to_main` looser than its release's | name the `field`, its `release_value` and `release_source`; choose a value as strict as the release's |
+| `not_authorized` | a setting looser than the workspace's, or a kill-switch action on a worker that is not yours | name the `field` or `record_type`; it is a workspace owner's to set |
+
+**Resuming a paused claim.** Offer `mcp__marshall__worker_resume { claim }` only for a
+**supervised** claim of your own, and only when the person says so in chat. An
+autonomous claim, or every worker at once (`all: true`), is resumed by a person from
+the **Workers** screen in Marshall: the store refuses those resumes over MCP. A
+pause keeps the claim held with its lease frozen; `mcp__marshall__release_claim` still hands
+it back. Operator runbook §30.6 and §30.11 have the detail.
+
 ## Recovering a lost claim (context compaction)
 
 A long session can lose the opaque claim `id` it was handed at step 2 — a
@@ -309,3 +368,6 @@ re-claims a lapsed part, or stops and names whoever holds it now.
   already own returns `claim_conflict`.
 - One component per claim. To work several, claim each with `$release-topic`,
   or dispatch them as a wave with `$release-parallel`.
+- **A pause or a stop is a person's decision.** On `worker_paused` stop and name who
+  paused it; on `lease_lost` after a stop, stop and do not re-claim. Never resume an
+  autonomous claim yourself.

@@ -70,6 +70,17 @@ Changing what either of those skills does is **out of scope** (see Guardrails).
 - `mcp__marshall__component_update` — write the part's **landing facts** at
   Step 9: its closing summary, its pull request and its merge commit. See **The
   landing facts** below — they are what the release's record says this part did.
+- `mcp__marshall__autonomy_get { component }` — the part's effective autonomy policy with
+  every layer, when `release_get`'s `autonomy.policy` on the part is not enough to
+  explain where a value came from. See **The part's level** below.
+
+Every write here can be refused by the autonomy rules or the kill switch:
+`worker_paused` (stop, say who paused it and when, wait for the person — never
+retry it in a loop), `lease_lost` after a stop (stop; do not re-claim),
+`suggest_only`, `approval_required`, `autonomy_disabled`, `looser_than_release` and
+`not_authorized`. `$release-topic`'s **Autonomy — the claim's mode and the
+refusals** says what each means and what to do. A refusal is not one of the three
+hard stops below; it is a person's rule, and the claim stays held.
 
 The claim lifecycle tools (`claim_component`, `release_claim`, `my_claims`) are
 driven **through** `$release-topic`, not called here directly.
@@ -275,6 +286,27 @@ autonomous even in an interactive session, `park it` selects supervised even in 
 dispatched one. The entry mode does **not** add a second merge axis: `land-only`
 (below) inherits this same dispatched → autonomous / interactive → supervised
 default, with the same override.
+
+### The part's level — what an autonomous claim may land
+
+The dial above is the operator's. **The claim's `mode` is the store's**, and when the
+claim is **autonomous** the part's autonomy level decides how far the landing goes —
+whatever the dial says, and whatever is said in chat. Read the mode from the hold
+(`hold.mode` in `mcp__marshall__release_get`, or the claim's `mode`) and the level from the
+part's `autonomy.policy.level` (with its `source`), at Step 0, and say both.
+
+| Level | An autonomous claim lands like this |
+| --- | --- |
+| `suggest` | **No pull request.** Run every gate, then report back: what the change is, how it was proven, the branch it sits on. Write the closing summary; do not move the part to `proposed` (the store refuses `suggest_only`) and do not open a PR. |
+| `pr_and_wait` | Open the PR and move the part to `proposed`, then **stop**: say that a person must click **Approve merge** for the part on the release page in Marshall. Do not merge (the store refuses `approval_required`). A later run that finds `autonomy.approval` on the part merges it, passing `gh pr merge --match-head-commit <head_sha>` when the approval names a `head_sha`. |
+| `merge` | Land it as the dial says. |
+
+This applies only while the release's `autonomy.enabled` is `true`; with it `false`,
+or on a store that reports no `mode`, the claim lands as a supervised one. A
+**supervised** claim is never held to the level: the operator's "merge it" in chat
+is enough, and it never waits for a web approval. A part parked at `pr_and_wait`
+keeps its claim held (it counts against the workspace's autonomous cap until it ends)
+and a later run picks it up through Step 0.
 
 ### The reviewer dial
 
@@ -518,7 +550,9 @@ whole loop is **resumable from the store + git** (see Step 0) — never from mem
   A gate you cannot confirm and do not account for is a silent skip, the one thing
   this loop must never do.
 - Resolve the **merge dial** (dispatched → autonomous; interactive → supervised) —
-  an explicit operator instruction overrides it.
+  an explicit operator instruction overrides it. Then read the claim's `mode` and the
+  part's level (see **The part's level**): for an autonomous claim the level bounds
+  the landing whatever the dial says.
 - Resolve the **reviewer dial**: the other agent **only** when this invocation asks
   for it (`reviewer: other`, or plain words that mean it); otherwise the same agent.
   Say which one you are driving.
@@ -659,6 +693,9 @@ can be fixed inside the acceptance criteria.
   write whose value it already carries: a resumed run, or a host plugin that records a
   successful `gh pr create` or `gh pr merge` on its own (and says so to you), may
   already have made it. Writing it again is an `invalid_transition`, not a fix.
+- **An autonomous claim at level `suggest` stops here.** Write the closing summary
+  (no `pull_request`) and report back; open no PR and make no `proposed` move (see
+  **The part's level**).
 - Open/update the component PR → **`set_component_state proposed`** — skip the call
   when the part is already `proposed` (a run resumed after the stop below, or the
   plugin that recorded the PR: `proposed` → `proposed` is an `invalid_transition`).
@@ -676,6 +713,9 @@ can be fixed inside the acceptance criteria.
   part stays `proposed` with its PR open and unmerged, and the claim stays held.
   Stopping before the merge keeps the PR and the store in step. This holds on both
   settings of the merge dial.
+- **An autonomous claim at level `pr_and_wait`** with no `autonomy.approval` on the
+  part stops at `proposed`: say that a person must click **Approve merge** for the part on the release page. With an approval, merge as below, passing
+  `--match-head-commit <head_sha>` when the approval names one.
 - **Merge dial** (reached only with every required gate on the record, or none required):
   - autonomous → when clean (no unfixable high, gates green, no ambiguity), merge,
     read the part again, then **`set_component_state merged`** — skip it when the part
@@ -756,6 +796,9 @@ can be fixed inside the acceptance criteria.
   dependents blocked.
 - **A landed part keeps its record** — Step 9 writes it, as **The landing facts**
   says.
+- **The level binds an autonomous claim.** No chat instruction loosens it: `suggest`
+  reports back with no PR, `pr_and_wait` waits for a person's **Approve merge**. A
+  supervised claim is never sent to the web for an approval.
 - **Build stops at one merged component.** It never wraps, deploys, or tags. A skill
   is a prompt, not a gate: the only part of this loop the store enforces is the gate
   records a project requires before `merged`.

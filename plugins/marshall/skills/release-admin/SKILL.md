@@ -71,6 +71,12 @@ Repair a tracker link that was never written (**owner-only**, safe to re-run):
 If the MCP server isn't connected, **stop and say so.** These records live only in
 the store; there is no local file to edit instead.
 
+**Autonomy refusals.** `worker_paused` (stop, say who paused it and when, wait for the
+person), `lease_lost` after a stop (stop, do not re-claim), `autonomy_disabled`,
+`looser_than_release` and `not_authorized` wrote nothing: surface the body and never
+retry one in a loop. `$release-topic`'s **Autonomy — the claim's mode and the
+refusals** says what each means and what to do.
+
 ## Archive resolves bottom-up; unarchive resolves top-down
 
 The archive guards are a containment rule, and they compose into an order. A

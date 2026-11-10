@@ -57,6 +57,20 @@ start again. If it
 returns `invalid_transition`, you tried to skip a step — re-read `deploy.step` and
 continue from there.
 
+If it returns `merge_needs_person`, this is an **autonomous run** (the release was
+built by a dispatch run that is still open, or you hold a live autonomous claim on
+one of its parts), the release PR's merge to main is `person`, and no person has
+approved the release. **Stop and do not merge**: say that a person must click
+**Approve merge** on the release page in Marshall (or merge it themselves), naming
+`merge_to_main_source` and the `deciding_part` when there is one. Nothing was
+written; start again once the release's `autonomy.approval` in `release_get` is set.
+A **supervised** deploy — a person driving it from their terminal — keeps today's
+flow: their "deploy" in chat is the go-ahead, and it never waits for a web approval.
+The other autonomy and kill-switch refusals (`worker_paused`, `lease_lost` after a
+stop, `autonomy_disabled`, `looser_than_release`, `not_authorized`) are
+`$release-topic`'s **Autonomy — the claim's mode and the refusals**: stop,
+name what the body says, never retry in a loop.
+
 ## Which mode — read `wrap.mode` first
 
 `wrap.mode` in `.claude/release-config.json` decides which progression this skill
@@ -144,7 +158,10 @@ On invocation, `release_get { release }` and read `deploy.step`:
    route to `$release-wrap` to fix, accept or defer them. If it returns
    `unsettled_parts`, **stop and do not merge**: the parts in `blocking` are
    neither merged nor cancelled, so the release is not finished; surface them, and
-   land or cancel each one before starting again. The
+   land or cancel each one before starting again. If it returns
+   `merge_needs_person`, **stop and do not merge** either: an autonomous run waits
+   for a person's **Approve merge** on the release page (see **How it talks to the
+   store**). The
    merge auto-deploys on `laravel-cloud`, so the gate must clear *before* the
    merge, not after. (Idempotent on resume; if `deploy.step` is already
    `deploying`+, the merge already happened — skip to Step 2.)
@@ -154,7 +171,11 @@ On invocation, `release_get { release }` and read `deploy.step`:
    `gh pr merge <N> --merge --delete-branch --match-head-commit <verified-head>`
    for the **user** to run and wait for "merged". When the operator explicitly
    authorized autonomous merging, run that exact-head command yourself and verify
-   the resulting merge commit.
+   the resulting merge commit. When the release carries a person's approval
+   (`autonomy.approval` in `release_get`) that names a `head_sha`, that is the
+   `--match-head-commit` value: the head the person approved. A PR whose head has
+   moved since then fails the merge — stop and ask for a fresh approval rather than
+   merging the newer head.
 4. Advance with the merge evidence: `set_deploy_step { release, step: 'deploying',
    merged_by, merge_sha: <oid> }`. The deploy is now in flight — Step 2.
 
@@ -354,8 +375,11 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
    `$release-wrap`. An `untriaged_findings` means the project requires every
    finding triaged and some are still `open` — stop the same way. An
    `unsettled_parts` means a part in `blocking` is neither merged nor cancelled —
-   stop, surface it, and land or cancel it first. Only once it clears, surface
-   `gh pr merge <N> --merge --delete-branch` for the **operator** to run.
+   stop, surface it, and land or cancel it first. A `merge_needs_person` means an
+   autonomous run waits for a person's **Approve merge** on the release page — stop
+   the same way. Only once it clears, surface
+   `gh pr merge <N> --merge --delete-branch` for the **operator** to run (with
+   `--match-head-commit <head_sha>` when the release's approval names one).
 2. **Date the CHANGELOG.** Stamp the release heading with today's date and commit,
    then record it: `set_ship_step { release, step: "dating", merged_by,
    merge_sha: <oid>, changelog_date: <YYYY-MM-DD> }`. Dating before tagging is
@@ -387,8 +411,9 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
 - **Record evidence, don't execute.** `merged_by`, `merge_sha`, `changelog_date`,
   `tag`, `release_url` are reported by the operator and stored verbatim — the
   store does not verify them, so do not invent or guess a value.
-- **The readiness gate is the same gate.** `deploy_blocked`, `untriaged_findings`
-  and `unsettled_parts` block a tag exactly as they block a deploy.
+- **The readiness gate is the same gate.** `deploy_blocked`, `untriaged_findings`,
+  `unsettled_parts` and `merge_needs_person` block a tag exactly as they block a
+  deploy.
 
 ## Guardrails
 
@@ -406,5 +431,9 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
   is worse than none: it answers "what was this version" incorrectly, forever.
 - **Surface store errors verbatim** — `deploy_blocked` (resolve high findings
   first), `untriaged_findings` (triage the open findings first), `unsettled_parts`
-  (land or cancel the parts first), `invalid_transition` (re-read the step), `lease_lost` — never work
+  (land or cancel the parts first), `merge_needs_person` (a person approves the
+  release first), `invalid_transition` (re-read the step), `lease_lost` — never work
   around them.
+- **An autonomous run waits for a person; a supervised one does not.** The release's
+  merge to main follows its policy only for an autonomous run, and a person driving
+  the deploy is never sent to the web for an approval.

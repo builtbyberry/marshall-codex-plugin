@@ -48,7 +48,10 @@ do have to ask the user which release.
 ## Reading the response
 
 - `startable[]` — ranked. Each carries its `release` (`{version, slug, project}`)
-  and `unblocks` (how many components it frees).
+  and `unblocks` (how many components it frees), and — on a store with autonomy —
+  the part's effective `autonomy` (`agent_ok`, `level`, `merge_to_main`; in the full
+  view `autonomy.policy.<setting>.value`). An entry with no `autonomy` comes from a
+  store that predates it: say nothing about it.
 - `blocked_summary` — counts by reason, merged across the scope
   (e.g. `{ "unverified": 1 }`, `{ "blocked": 2 }`).
 - `releases[]` — one entry per release considered, each with its own `startable`
@@ -83,6 +86,12 @@ For each recommendation (already ranked by what it unblocks):
   useless if the reader can't tell what belongs where.
 - why it's startable now (no unmet blockers, graph verified, unheld)
 - what it unblocks (its position on the critical path)
+- **whether an agent may take it, and how far it goes on its own**: its `agent_ok`
+  (`agent ok` / `person only`) and its `level` (`suggest` — reports back with no PR;
+  `pr_and_wait` — opens the PR and waits for a person's Approve merge; `merge` —
+  lands it). These bind autonomous work — a dispatched wave — only; a person taking
+  it from their terminal keeps today's flow. A `person only` part is not one to put
+  in a `$release-parallel` wave.
 
 End with:
 
