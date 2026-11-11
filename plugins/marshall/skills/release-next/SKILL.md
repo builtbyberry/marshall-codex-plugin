@@ -23,6 +23,7 @@ whatever the user actually gave you.
 - `mcp__marshall__release_next` — startable work, ranked by what it unblocks
 - `mcp__marshall__release_status` — who holds what + drift
 - `mcp__marshall__release_get` — the full release document
+- `mcp__marshall__needs_you_list` — what in the workspace is waiting on a person
 
 If those tools aren't available (the MCP server isn't connected), fall back to
 the `marshall` CLI: `marshall next --release <version> --json`. Same data, secondary path
@@ -38,12 +39,20 @@ do have to ask the user which release.
    - Named nothing ("what should I work on?") → `{}` — every unshipped release in
      the workspace. This is the default for an open-ended ask.
 2. Call `mcp__marshall__release_next`.
-3. Render the result:
+3. **Read what is waiting on a person:** `mcp__marshall__needs_you_list { view: "summary" }`.
+   With items, open the answer with them, before any recommendation: how many, how
+   many are `yours`, and for each its `kind` (`question`, `approval`, `paused`,
+   `stop`), its part and release, and how long it has waited (`since`). When the user
+   named a release or a project, list only the items whose `release` or `project`
+   matches, and say that is what you did. If the call fails — `needs_you_disabled`,
+   a store with no such tool to call, anything else — say nothing about it and
+   carry on exactly as before.
+4. Render the result:
    - `startable` non-empty → recommend the top 1–3 (already ranked).
    - `startable` empty → report what's blocking. Read `releases[]` for the
      per-release breakdown — *which* release is stuck and why — not just the
      merged `blocked_summary`, which cannot say where the problem is.
-   - Tool error → surface it verbatim. Do not paper over it.
+   - `release_next` error → surface it verbatim. Do not paper over it.
 
 ## Reading the response
 
@@ -67,7 +76,8 @@ the server has no basis for that judgement, so it does not pretend to.
 
 ## Errors
 
-Surface them verbatim. Each is recoverable in a specific way:
+Surface a `release_next` error verbatim; each is recoverable in a specific way. A
+failed `needs_you_list` is not surfaced (step 3).
 
 - `release_ambiguous` — the key matched more than one release. `candidates[]`
   names each one's `project` + `slug`; retry with `project` set to a candidate's
@@ -78,6 +88,8 @@ Surface them verbatim. Each is recoverable in a specific way:
 - An auth/connection problem — report it. Don't work around it.
 
 ## Output
+
+First, what is waiting on a person (step 3), when anything is.
 
 For each recommendation (already ranked by what it unblocks):
 
@@ -103,7 +115,8 @@ End with:
 ## Guardrails
 
 - Do not claim, heartbeat, or release here — recommending is read-only. The claim
-  lifecycle is a deliberate next step.
+  lifecycle is a deliberate next step. Nor does it clear a stop or approve
+  anything: it only says what is waiting.
 - Do not invent startability. If `release_next` returns nothing, the answer is
   "nothing is startable, here's why" — never relax the server's verdict.
 - If a graph is `unverified`, say so plainly: that release needs `$release-graph`
