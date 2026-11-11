@@ -308,7 +308,7 @@ as the table says — never retry one in a loop, and never route around it.
 | `agent_not_allowed` | the part's `agent_ok` is off (`parts` names it) | leave the part out of autonomous work, or a person takes it |
 | `agent_cap_reached` | the workspace already has `current` of `max` autonomous agents live | wait for one to end, or ask an owner to raise the cap; take nothing past it |
 | `suggest_only` | the part is at level `suggest` | report back what you found with no pull request and no `proposed` move |
-| `approval_required` | the part is at `pr_and_wait` and no person approved it | leave it `proposed` with its PR open; a person clicks **Approve merge** for the part on the release page |
+| `approval_required` | the part is at `pr_and_wait` and no person approved it | leave it `proposed` with its PR open; a person clicks **Approve merge** for the part on the release page or the Needs you page |
 | `merge_needs_person` | the release PR's merge to main is `person` and nobody approved the release | do not merge; a person clicks **Approve merge** on the release page, or merges it |
 | `worker_paused` | a person paused this claim (`pause_scope: claim`), or every worker in the workspace (`workspace`) | **stop.** Say who paused it and when (`paused_by.display_name`, `paused_at`), do not retry, and wait for the person |
 | `lease_lost` after a stop | a person stopped the worker: the claim was revoked (`claim_status: revoked`; the part's `last_worked.ended` reads `revoked`) | **stop.** Do not re-claim; the person decides what happens next |
@@ -322,6 +322,30 @@ autonomous claim, or every worker at once (`all: true`), is resumed by a person 
 the **Workers** screen in Marshall: the store refuses those resumes over MCP. A
 pause keeps the claim held with its lease frozen; `mcp__marshall__release_claim` still hands
 it back. Operator runbook §30.6 and §30.11 have the detail.
+
+**Escalating.** A refusal only a person can lift, on a part it leaves waiting for
+their decision, is put in front of them once:
+`mcp__marshall__stop_raise { component, kind: "escalation", note }`, the `note` naming the
+refusal and the decision asked for. Then do what the table says.
+
+- **Only for a refusal the store actually returned, and only these:**
+  `agent_not_allowed`, `agent_cap_reached`, `suggest_only`, `looser_than_release`, and
+  `not_authorized` when it names an autonomy `field`. Only on the part the refused
+  call named; with no part in hand there is nothing to raise (a refused wave is
+  `$release-parallel`'s). For `looser_than_release` and `suggest_only`, only
+  when the person or the brief asked for the looser value or the PR and you cannot
+  go on without it; otherwise do what the table says and raise nothing.
+- **Never** for `worker_paused` (the person already knows; a paused claim's raise is
+  refused as well), for `approval_required` (the approval is already listed for a person) or
+  `merge_needs_person` (a person approves it on the release page), or for a refusal of `stop_raise` or `stop_clear`
+  itself. An over-cap claim that simply waits for a later wave is not one either.
+- **Once.** Never raise it twice for one refusal, and never retry the refused call
+  in a loop. When a person has lifted the rule and the call succeeds, clear it:
+  `mcp__marshall__stop_clear { stop }`.
+
+What a stop is, what its `note` may hold, and what to do when the raise or the clear
+itself fails are `$release-build`'s **Leaving a stop record** — not restated
+here.
 
 ## Recovering a lost claim (context compaction)
 

@@ -40,6 +40,9 @@
                 },
                 "autonomy_get": {
                     "approval_mode": "approve"
+                },
+                "needs_you_list": {
+                    "approval_mode": "approve"
                 }
             }
         }

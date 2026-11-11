@@ -114,9 +114,24 @@ the user (or `release_next`) gave you and let the store decide. On return:
 
 - `agent_not_allowed` — `parts` names members whose `agent_ok` is off. Surface them,
   drop them from the set, confirm the smaller wave with the operator, then open it.
+  On an unattended run there is nobody to confirm with: raise the escalation below
+  and open nothing.
 - `agent_cap_reached` — the workspace already has `current` of `max` autonomous
   agents live. Surface both numbers and stop: wait for one to end, or ask an owner
   to raise the cap. Never retry it in a loop.
+
+**One escalation for a wave, at most, and it is this session's.** It is raised
+**only** when this invocation said the run is unattended (the word `unattended`,
+or plain words that mean it); it is asked for on a run and is never a standing
+default. Then, when `dispatch_open` is refused as above, raise a single
+`mcp__marshall__stop_raise { component, kind: "escalation", note }` —
+on the first part the refusal names, or the wave's first requested part when it
+names none (`agent_cap_reached`) — the `note` naming the refusal, the parts and
+what is asked. Otherwise surface the refusal to the person driving and raise
+nothing. Members
+never raise one each, and a claim refused while the wave is set up (Step 3) raises
+none. `$release-topic`'s **Escalating** and `$release-build`'s
+**Leaving a stop record** have the rest.
 
 This is the same fail-loud contract as the rest of the store: the guard is the
 backstop, not a warning to work around.
@@ -150,6 +165,22 @@ On every invocation, `release_get { release }` (or `dispatch_get`) and look for 
     keeps `failures` {count, last_at, last_note}, and the audit trail keeps every
     attempt. **Do not leave a member at `failed` when its component has moved on** —
     that is precisely the divergence that makes the board lie to the next session.
+    A member that stopped for a person left a stop on its part: read the part's
+    `stops` with `mcp__marshall__release_get { release, view: "full" }` (the summary view
+    carries none). Before holding a member back for a stop in `stops.open`, call
+    `mcp__marshall__needs_you_list { view: "summary" }` once:
+    - it answers normally → the stop is **still waiting on a person**: do not retry
+      the member, and raise and clear nothing for it;
+    - it answers `needs_you_disabled` → an open stop record is no reason to hold the
+      member back: reconcile it as above. This is the **only** answer that lets a
+      member with an open stop be retried;
+    - the call fails any other way (a timeout, a server error, a denial, a tool
+      that is not there to call) → the stop is **still waiting on a person**: do
+      not retry the member, say that the inbox could not be read, raise and clear
+      nothing for it, and never retry the call in a loop.
+
+    Once a stop is answered, the member is picked up through
+    `$release-build`'s Step 0, which reads the reply.
   - `proposed` → work landed a PR; report it (merging/wrap is out of scope here).
   - `in_progress` / `dispatched` → still live. Re-attach to the member: confirm
     its claim is still held (`heartbeat_claim`; if `lease_lost`, the hold is dead —
@@ -259,7 +290,8 @@ For each admitted member, in parallel:
    - **release-topic stops** → do **not** spawn a subagent for the member. Drop it
      from the wave and carry it into the wave-wide report below as `{ member,
      status: "failed", note }`, so the board says why. `failed` is retry-able (see
-     **Resume**). The note names the stop:
+     **Resume**). These stops leave no stop record on the part: the note is their
+     trace. The note names the stop:
      - `claim_conflict: held by <holder>` — someone else holds it (the error names
        the holder).
      - `held by you on <machine> in <worktree>` — your actor holds it from another
@@ -369,7 +401,11 @@ id + fence**. Its standing instructions:
    - `in_progress` when it starts (with a one-line plan in `note`),
    - `proposed` when it opens its PR (`note: <PR url>`),
    - `failed` if it can't complete (the `note` carries why — and is the resume
-     signal for a retry on the next invocation),
+     signal for a retry on the next invocation). When it stopped for a person —
+     one of `$release-build`'s five stops — the stop record comes first:
+     release-build's **Leaving a stop record** is the one raise
+     (`mcp__marshall__stop_raise`, on its own part only), and the `failed` note then says
+     the same thing in a sentence. It reports `failed` either way,
    - `merged` only if its PR actually lands in this session (usually it stops at
      `proposed`; merging is a separate decision).
    The part is already `in_progress` — release-topic set it during setup — so it
