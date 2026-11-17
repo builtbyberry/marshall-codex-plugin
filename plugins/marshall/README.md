@@ -19,13 +19,17 @@ environment variable is absent, which suppresses OAuth and leaves the server wit
 tools. See the install/CI guide for the current separate browserless path and for
 credential provisioning, workspace grants, rotation, and revocation.
 
-The plugin holds **every mutating MCP tool for approval** and pre-approves only the
-read-only tools — a fail-safe posture, because Codex's OS sandbox does not gate
+The plugin holds **every mutating MCP tool but one for approval** and pre-approves
+the read-only tools — a fail-safe posture, because Codex's OS sandbox does not gate
 MCP calls. The `.mcp.json` sets `default_tools_approval_mode = prompt`
 and lists exactly the thirteen reads (`release_get`, `release_next`, `release_status`,
 `release_list`, `release_changelog`, `project_list`, `my_claims`, `dispatch_get`,
-`lenses_get`, `lenses_applicable`, `worker_list`, `autonomy_get`, `needs_you_list`) as `approve`; every other tool — every create, state move,
-deploy/ship step, archive/delete, and any tool added later — inherits `prompt`.
+`lenses_get`, `lenses_applicable`, `worker_list`, `autonomy_get`, `needs_you_list`) as `approve`,
+plus one write, `stop_raise`, so a run nobody is watching can leave a stop on the
+Needs you page instead of waiting on an approval; every other tool — every create, state move,
+deploy/ship step, archive/delete, `stop_clear`, and any tool added later — inherits `prompt`.
+An unattended run therefore still waits for an approval on its other writes (its
+claim, its state moves, its reports).
 
 ## What's in here
 

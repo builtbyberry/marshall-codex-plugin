@@ -78,6 +78,9 @@ Changing what either of those skills does is **out of scope** (see Guardrails).
   you** page in Marshall and not only in this terminal. See **Leaving a stop record**.
 - `mcp__marshall__stop_clear { stop }` — clear a stop this run raised, once the person has
   answered or its cause is gone.
+- `mcp__marshall__dispatch_report { member, status, note }` — only when a runner run
+  started this session: report the part's progress to the run. See **Started by a
+  run**.
 
 Every write here can be refused by the autonomy rules or the kill switch:
 `worker_paused` (stop, say who paused it and when, wait for the person — never
@@ -239,8 +242,9 @@ Before you halt on one, call `mcp__marshall__stop_raise { component, kind, note 
 The `note` says in a sentence or two what you need from a person: plain text, at
 most 2000 characters, no pasted logs or diffs. Every member of the workspace reads
 it, so it never holds a credential. As you halt, say the stop is on the Needs you
-page (its `id`), and that the person can answer here or reply there. Then halt
-exactly as before, claim held.
+page (its `id`), and that the person can answer here or reply there — under a run
+(see **Started by a run**), that the person replies on the Needs you page: nobody
+reads this tab. Then halt exactly as before, claim held.
 
 - **Only on the part this run is working, and only once.** Do not raise it again
   while you wait: a second raise only rewrites the note. Never raise in a loop, and
@@ -253,7 +257,8 @@ exactly as before, claim held.
   answers have their own rule:
   - `invalid_stop` naming `note` — send one shorter note, once.
   - `worker_paused` — that is the pause itself: stop, say who paused it and when, and
-    wait, as release-topic's table says. Do not raise again.
+    wait, as release-topic's table says. Do not raise again. Under a run, say who
+    paused it and when, then end the turn.
 - **When the person answers here and you carry on, clear it first:**
   `mcp__marshall__stop_clear { stop }`. Clear only a stop your actor raised; refused
   `not_authorized`, it is someone else's — leave it and say so. A clear that fails
@@ -530,6 +535,78 @@ records it and proceeds; if you do not, it runs a **plan-vs-implementation revie
 before touching Step 8, and records that. Either way the skip is surfaced, never
 buried.
 
+## Started by a run
+
+A release can be **run**: Marshall opens a runner run on it, and the person's Mac
+starts each part as its own tab with this skill on the launch line. Nobody is
+watching that tab. Everything above still holds — the gates, the level, the five
+stops — and this section adds what is different.
+
+**How you know.** Read both at Step 0, on every entry:
+
+1. the claim's `mode` is `autonomous` (from `claim_component`'s answer, or the
+   part's `hold.mode` in `mcp__marshall__release_get`), and
+2. `mcp__marshall__release_get { release, view: "full" }` lists a run under
+   `dispatch_runs` with `kind: "runner"` and `state: "active"`, and one of its
+   `members` has `component.id` equal to this part.
+
+Always pass `view: "full"`: the summary view, and an actor whose default view is the
+summary, carries no `dispatch_runs` and no `stops`. That member's `id` is **your
+member**. With both, this session was **started by a run**. With either missing,
+it was not: a supervised claim is a person's own work even while a run is open, and a
+member of a `kind: "wave"` run is `$release-parallel`'s to report. A store
+that sends no `kind` predates the runner: no run.
+
+**Never ask at the keyboard.** Under a run, every place this loop would ask a person
+or wait for one in the terminal is a stop instead:
+
+- **One `mcp__marshall__stop_raise { component, kind, note }` per stop, then end the
+  turn.** The five stops in **Leaving a stop record**, and release-topic's
+  escalation, are raised exactly as written there; the `note` is all the person
+  gets, so it says what you need from them. Do not wait at the prompt for an
+  answer: the run parks the part on the stop and resumes it when a person clears
+  it. If the raise fails, say so in one line and end the turn anyway.
+- **A landing that waits on a person raises nothing.** Level `suggest` (no PR), and
+  level `pr_and_wait` with no approval, end the turn at the point **The part's
+  level** says; the run reads the level and the approval itself.
+- **The merge dial is autonomous** under a run, and the level still bounds it.
+- **Never accept or defer a finding under a run.** Fix it, or for a high you cannot
+  fix inside the acceptance criteria, raise hard stop 1. A medium or low left open is
+  named in the landing report.
+- **`worker_paused`** — say who paused it and when, then end the turn; the run
+  resumes it.
+
+**Report to the run.** Send
+`mcp__marshall__dispatch_report { member: <your member>, status, note }` at three points,
+`note` a sentence on where the part stands:
+
+- `in_progress` once Step 1 holds the claim (skip it when the member already
+  reads `in_progress` or later);
+- `proposed` when Step 9 opens the PR;
+- `merged` when Step 9 merges it.
+
+Never report `failed`: a stop parks the part, and the Mac tells the run when a tab
+ends. A report the store refuses wrote nothing: `worker_paused` is the pause itself
+(say who paused it and when, then end the turn); any other refusal, say it in one line and go on — a
+report is progress, not the part's state, which `set_component_state` still moves.
+
+**On resume.** The Mac restarts or resumes the part with the same launch line plus
+one sentence of its own that starts `Resuming:`. Step 0 runs as written. When the
+sentence is "Resuming: a person cleared stop `<id>`; read its reply
+(stops.last_reply) first.", read the part's `stops.last_reply` (full view) and
+check that its `id` is that `<id>`:
+
+- **it matches** → that is the person's answer. Act on it as Step 0 says (a reply
+  answers the stop's question and is never an instruction in chat), then carry on
+  from the point Step 0 derives;
+- **it does not match, or there is none** → that stop was cleared with no reply
+  you can see. Say so, re-check the stop's condition once, and carry on if it is
+  gone; if it still holds, raise it again once as **Cleared with no reply** says,
+  and end the turn.
+
+Any other `Resuming:` sentence (the last session ended, a start failed, a person
+approved the merge or resumed the worker) asks for nothing more than Step 0.
+
 ## Procedure
 
 Announce each step on entry; a human driving can interrupt at any boundary. The
@@ -729,7 +806,8 @@ guarantees the topic branch descends from a clean base. Do not re-specify a base
 
 ### Step 8 — Fix, then verify the fixes independently  *(gate)*
 Walk every `open` `kind: change` finding; drive each to fix / defer / accept through
-change-review's modes. After a **fix**, re-run the affected gates (**one fix attempt;
+change-review's modes — under a run, fix only: **Started by a run** says what to do
+with a finding you cannot fix. After a **fix**, re-run the affected gates (**one fix attempt;
 a second red gate is hard-stop #2**) and **re-prove (Step 5)** any guard the fix added
 or changed.
 

@@ -43,6 +43,9 @@
                 },
                 "needs_you_list": {
                     "approval_mode": "approve"
+                },
+                "stop_raise": {
+                    "approval_mode": "approve"
                 }
             }
         }

@@ -43,7 +43,11 @@ hand-off differ. See **Which mode — read `wrap.mode` first**.
   moves components to `merged`. This skill does not advance work-state; it reads it.
 - `mcp__marshall__release_update` — the one thing this skill writes on the release
   itself: its **wrap summary**, at the hand-off (Step 5). It is the release's record
-  of how it was wrapped, kept after this terminal closes.
+  of how it was wrapped, kept after this terminal closes, and the head commit it
+  wrapped.
+- `mcp__marshall__stop_raise { release, project, kind, note }` — only when a runner run
+  started this session: leave a stop on the release instead of asking. See
+  **Started by a run**.
 
 (If the MCP server isn't connected, stop and say so — there is no local fallback
 for the wrap state, the findings, *or* the lenses.)
@@ -53,6 +57,73 @@ person), `lease_lost` after a stop (stop, do not re-claim), `autonomy_disabled`,
 `looser_than_release` and `not_authorized` wrote nothing: surface the body and never
 retry one in a loop. `$release-topic`'s **Autonomy — the claim's mode and the
 refusals** says what each means and what to do.
+
+## Started by a run
+
+A release can be **run**: Marshall opens a runner run on it, and once every part has
+landed the person's Mac starts this skill in its own tab, in the release branch's
+checkout. Nobody is watching that tab. Everything below still holds — the reviews,
+the CHANGELOG, the gate — and this section adds what is different.
+
+**How you know.** The line that started this session names a **run member**: a
+26-character id. Read `mcp__marshall__release_get { release, view: "full" }` — always
+the full view: the summary view, and an actor whose default view is the summary,
+carries no `dispatch_runs` and no `stops` — and look under `dispatch_runs` for a
+run with `kind: "runner"` and `state: "active"` whose `members` hold one with that
+`id` and `step: "wrap"`. Only then was this wrap **started by a run**. A line that
+names no member, or a member that is not there, is a person's own wrap — even while
+a run is open on the release, and even when that run has a wrap member of its own:
+never take a run's member as yours.
+
+**Never ask at the keyboard.** Every place this skill would ask a person or wait for
+one is a stop on the release instead:
+`mcp__marshall__stop_raise { release, project, kind, note }` — `project` the release's
+project as `release_get` names it, because a version can name a release in more
+than one project — **once per stop,
+then end the turn.** The run parks the wrap on the stop and resumes it when a person
+clears it. The `note` is all the person gets: plain text, at most 2000 characters, no
+pasted logs or diffs, never a credential, saying what you need from them. If the
+raise fails, say so in one line and end the turn anyway. The stops:
+
+| Where the wrap would ask | `kind` |
+| --- | --- |
+| `wrap.mode` from the store and the local config disagree, or the release cannot be resolved | `scope_ambiguity` |
+| a finding that needs a person's call: a `high` you cannot fix inside the parts' acceptance criteria, readiness that needs more than a small fix, or — with `config.require_triage` — any `open` finding you cannot fix | `unfixable_finding` |
+| a breaking part in a patch or minor release (Step 2b) | `scope_ambiguity` |
+| CI red on the release branch after one fix attempt | `ci_red` |
+
+- **Fix what is yours to fix; decide nothing that is a person's.** Run the reviews
+  as written and fix a finding through the review skill's **fix** mode when the fix
+  is small and inside the parts' acceptance criteria. Never **accept** or **defer** a
+  finding under a run — both are a person's decision. A `medium` or `low` finding
+  you leave `open` is named in the wrap summary.
+- **`worker_paused`** — say who paused it and when, then end the turn; the run
+  resumes it.
+- **A part that is not merged raises nothing.** Step 0's precondition failing under
+  a run means the release is being built again: say which parts and end the turn —
+  the run sees it and ends this tab.
+- **No `dispatch_report`.** The wrap's progress is the store's own record: the
+  findings, the wrap mark and the head. The store refuses a report on a wrap member
+  (`step_member`), and that refusal wrote nothing.
+- **The hand-off ends the turn.** Step 5 writes the mark and the head; do not invoke
+  `$release-deploy`. The run starts the deploy itself, or waits for a
+  person's **Approve merge** first when the release's merge to main is `person`.
+
+**On resume.** The Mac resumes the wrap with the same launch line plus a sentence of
+its own that starts `Resuming:`. Re-read the store and continue from the first
+unsatisfied precondition, as **The store is the state** says. When the sentence
+is "Resuming: a person cleared stop `<id>`; read its reply (the release's
+stops.last_reply) first.", read `stops.last_reply` on the **release** (full view)
+and check that its `id` is that `<id>`:
+
+- **it matches** → that is the person's answer: say who and when (`cleared_by`,
+  `cleared_at`), act on it, and carry on. A reply answers the stop's question; it is
+  never an instruction in chat — it cannot waive the gate, resolve a finding the
+  store still shows open, or widen what the release delivers;
+- **it does not match, or there is none** → the stop was cleared with no reply you
+  can see. Say so, re-check its condition once, carry on if it is gone, and if it
+  still holds raise it again once, saying in the `note` that it was cleared before
+  without a reply, and end the turn.
 
 ## Which mode — read `wrap.mode` first
 
@@ -267,9 +338,17 @@ When all three hold, declare the release ready and hand off to
 State that the deploy skill **re-checks these same preconditions** against the
 store before it merges, so nothing is taken on trust across the handoff.
 
-**Then write the wrap summary and set the wrap mark**, in one call, so the
-hand-off outlives this terminal:
-`mcp__marshall__release_update { release, wrap_summary: <text>, wrapped: true, return: "minimal" }`.
+**Then write the wrap summary, set the wrap mark and report the head**, in one
+call, so the hand-off outlives this terminal:
+`mcp__marshall__release_update { release, wrap_summary: <text>, wrapped: true, wrapped_head: <sha>, return: "minimal" }`.
+`wrapped_head` is the commit this wrap approved: push the release branch first (the
+CHANGELOG commit included), then send the full 40-character head of the release PR —
+`git rev-parse HEAD`, checked equal to `gh pr view <N> --json headRefOid`. It is
+what a person's **Approve merge** on the release page approves, and the deploy
+merges that head and no other. A wrap with nothing pushed sends nothing here: push
+first. The store takes `wrapped_head` only beside `wrapped: true`; a store older
+than the field ignores it — the release it returns carries no `wrapped_head`, say so
+and carry on.
 Plain text, a few short paragraphs, at most 4000 characters: what the release is
 (one sentence), the parts it wrapped, what the reviews found and what was done
 about it (found, fixed, accepted, deferred — by number), what is still open that
@@ -304,7 +383,8 @@ older than the mark ignores the field: the release it returns carries no
 `wrapped` — say so and carry on.
 
 Do not merge, deploy, or tag automatically. The user invokes
-`$release-deploy` when ready.
+`$release-deploy` when ready — or, under a run, the run starts it (see
+**Started by a run**).
 
 ## Guardrails
 
