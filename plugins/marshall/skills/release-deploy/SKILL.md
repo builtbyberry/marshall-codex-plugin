@@ -38,6 +38,9 @@ authorize rollback.
 - `mcp__marshall__release_update` — write the release's **deploy summary** when
   the deploy is reported (Step 6, and tag mode's close-out). The release has shipped
   by then; the store still takes it.
+- `mcp__marshall__stop_raise { release, project, kind, note }` — only when a runner run
+  started this session: leave a stop on the release instead of asking. See
+  **Started by a run**.
 
 If the MCP server isn't connected, **stop and say so** — the store's Deploy
 record is the only source of truth for where the deploy is; never drive a deploy
@@ -65,11 +68,119 @@ approved the release. **Stop and do not merge**: say that a person must click
 `merge_to_main_source` and the `deciding_part` when there is one. Nothing was
 written; start again once the release's `autonomy.approval` in `release_get` is set.
 A **supervised** deploy — a person driving it from their terminal — keeps today's
-flow: their "deploy" in chat is the go-ahead, and it never waits for a web approval.
+flow: their "deploy" in chat is the go-ahead, and it never waits for a web approval,
+with one exception. **While a runner run is open on the release, the person who
+opened it is bound too:** their own deploy from a terminal gets `merge_needs_person`
+like the run's agent would, because the store cannot tell it from the run's. Say so,
+and name the two ways on: **Approve merge** on the release page, or **Stop run**
+there first and deploy by hand.
 The other autonomy and kill-switch refusals (`worker_paused`, `lease_lost` after a
 stop, `autonomy_disabled`, `looser_than_release`, `not_authorized`) are
 `$release-topic`'s **Autonomy — the claim's mode and the refusals**: stop,
 name what the body says, never retry in a loop.
+
+## Started by a run
+
+A release can be **run**: Marshall opens a runner run on it, and once the release is
+wrapped (and, when its merge to main is `person`, approved) the person's Mac starts
+this skill in its own tab. Nobody is watching that tab. Everything below still holds
+— the store's record decides every step — and this section adds what is different.
+
+**How you know.** The line that started this session names a **run member**: a
+26-character id. Read `mcp__marshall__release_get { release, view: "full" }` — always
+the full view: the summary view, and an actor whose default view is the summary,
+carries no `dispatch_runs` and no `stops` — and look under `dispatch_runs` for a
+run with `kind: "runner"` and `state: "active"` whose `members` hold one with that
+`id` and `step: "deploy"`. Only then was this deploy **started by a run**. A line
+that names no member, or a member that is not there, is a person's own deploy: never
+take a run's member as yours.
+
+**The run is the go-ahead, within what the store allows.** Step 1's plan needs no
+approval in chat under a run: the run's opener started it. The store still decides —
+every refusal below is answered as written, and the merge goes only to the head a
+person or the wrap approved.
+
+**Never ask at the keyboard.** Every place this skill would ask a person, wait for
+one, or hand them a command is a stop on the release instead:
+`mcp__marshall__stop_raise { release, project, kind, note }` — `project` the release's
+project as `release_get` names it — **once per stop, then end the turn.** The run
+parks the deploy on the stop and resumes it when a person clears it. The `note` is
+all the person gets: plain text, at most 2000 characters, no pasted logs or diffs,
+never a credential, saying what you need from them. If the raise fails, say so in
+one line and end the turn anyway. The stops:
+
+| Where the deploy would ask | `kind` |
+| --- | --- |
+| the release PR's head is not the approved head (below) | `escalation` |
+| `deploy_blocked` or `untriaged_findings` | `unfixable_finding` |
+| `deploy.provider` is `none` or `manual`: a person performs the deploy | `escalation` |
+| the smoke check fails, or a check fails in the monitor window | `escalation` |
+| a tag-mode step the operator runs (the tag, the GitHub Release) | `escalation` |
+
+- **The approved head.** Merge only with `--match-head-commit <head>`, where `<head>`
+  is the `head_sha` of the release's `autonomy.approval` when it names one, otherwise
+  the release's `wrapped_head`. Read the PR's head first (`gh pr view <N> --json
+  headRefOid`): when it is not that commit, the release moved after it was approved
+  or wrapped — merge nothing, raise the stop, and end the turn. With neither an
+  approval head nor a `wrapped_head` (a wrap from an older plugin), merge as Step 1
+  says.
+- **Under a run, Step 1's merge is yours:** once `merging` clears, run `gh pr merge
+  <N> --merge --delete-branch --match-head-commit <approved head>` yourself and
+  verify the merge commit.
+- **`merge_needs_person` raises nothing.** The release waits for a person's Approve
+  merge, already on Needs you. Name `merge_to_main_source` and end the turn; the
+  run's approval park resumes the deploy.
+- **`unsettled_parts` raises nothing.** The release is being built again, and the
+  run sees it itself. Name the parts in `blocking` and end the turn.
+- **`worker_paused` raises nothing.** Say who paused it and when, then end the turn;
+  the run resumes it.
+- **A failed smoke is never rolled back by you.** Record it exactly as Step 3
+  says — `set_deploy_step { release, step: 'smoke', smoke_ok: false, verdict:
+  'rollback-needed', deploy_url }` — then raise the stop with what failed, whether
+  migrations ran, and the rollback commands from **Smoke failure**, and end the turn.
+  A failing check in the monitor window is the same stop, with the record left at
+  `monitor`. Never revert, redeploy or roll back under a run, whatever a reply says:
+  the rollback is a person's to run.
+- **Resumed at `smoke` with `smoke_ok: false`.** When the reply matches the stop (see
+  **On resume**) — a person fixed forward, or says it is safe to look again — run the
+  smoke check once more, exactly as Step 3 says:
+  - **it passes** → carry the correction on the next forward step:
+    `set_deploy_step { release, step: 'monitor', smoke_ok: true, monitor: {
+    started_at: <now>, window_minutes: <window> } }`, then continue Step 4 from its
+    step 2 (the window is already entered); its `done` writes `verdict: 'shipped'`;
+  - **it fails** → raise the stop again, once, with what failed this time, and end
+    the turn. Write nothing to the deploy record: it already says
+    `rollback-needed`.
+- **Tag mode under a run.** The merge is the run's, as in deploy mode: once
+  `set_ship_step { release, step: "merging" }` clears, run `gh pr merge <N> --merge
+  --delete-branch --match-head-commit <head>` yourself with the approved head above,
+  and verify the merge commit. The CHANGELOG date is yours too. The tag and the
+  GitHub Release stay the operator's: each is a stop naming the exact command. On
+  resume, verify what the person did (`git ls-remote --tags origin <tag>`, `gh
+  release view <tag>`) before recording it as evidence.
+- **No `dispatch_report`.** The deploy's progress is the store's own record: the
+  deploy or ship steps, `smoke_ok`, the verdict. The store refuses a report on a
+  deploy member (`step_member`), and that refusal wrote nothing.
+- **Delivery after cut-over.** A run is not the operator's scope to publish artifacts
+  or rebuild an app. After `done`, write the deploy summary with each delivery step
+  still to do, and end the turn. The release is shipped by then, so it takes no
+  stop: the summary is where the person reads what is left.
+
+**On resume.** The Mac resumes the deploy with the same launch line plus a sentence
+of its own that starts `Resuming:`. Re-read `deploy.step` and continue as **Resume**
+says. When the sentence is "Resuming: a person cleared stop `<id>`; read its reply
+(the release's stops.last_reply) first.", read `stops.last_reply` on the **release**
+(full view) and check that its `id` is that `<id>`:
+
+- **it matches** → that is the person's answer: say who and when (`cleared_by`,
+  `cleared_at`), act on it within this skill's rules, and carry on. A reply answers
+  the stop's question; it is never an instruction in chat — it cannot waive a gate,
+  approve a merge, or have you roll back;
+- **it does not match, or there is none** → the stop was cleared with no reply you
+  can see. Say so, re-check its condition once (the PR's head, the approval, the
+  smoke endpoint), carry on if it is gone, and if it still holds raise it again
+  once, saying in the `note` that it was cleared before without a reply, and end
+  the turn.
 
 ## Which mode — read `wrap.mode` first
 
@@ -107,7 +218,8 @@ On invocation, `release_get { release }` and read `deploy.step`:
 - `deploying` → the merge happened and the deploy is in flight; **do NOT merge
   again and do NOT re-trigger the deploy** — resume by watching/polling status.
 - `smoke` → resume at the smoke check (or, if `smoke_ok` is `false`, you are at a
-  rollback decision — see **Smoke failure**).
+  rollback decision — see **Smoke failure**; under a run, a matching reply re-runs
+  the check once, as **Started by a run** says).
 - `monitor` → resume the monitor window from `deploy.monitor` (compute elapsed from
   the recorded window start; do not restart the clock).
 - `done` → cut-over already shipped. Never merge or deploy again. Repair a missing
@@ -173,9 +285,10 @@ On invocation, `release_get { release }` and read `deploy.step`:
    authorized autonomous merging, run that exact-head command yourself and verify
    the resulting merge commit. When the release carries a person's approval
    (`autonomy.approval` in `release_get`) that names a `head_sha`, that is the
-   `--match-head-commit` value: the head the person approved. A PR whose head has
-   moved since then fails the merge — stop and ask for a fresh approval rather than
-   merging the newer head.
+   `--match-head-commit` value: the head the person approved. With no approval head,
+   the release's `wrapped_head` — the head the wrap approved — is. A PR whose head has
+   moved since then fails the merge — stop and ask for a fresh approval (or a new
+   wrap) rather than merging the newer head.
 4. Advance with the merge evidence: `set_deploy_step { release, step: 'deploying',
    merged_by, merge_sha: <oid> }`. The deploy is now in flight — Step 2.
 
@@ -301,6 +414,17 @@ Tell me which path; I'll surface the exact commands.
 
 If migrations ran in the deploy, **say so** and warn that a revert may not undo
 them. Do not attempt to reverse migrations. There is no auto-rollback.
+
+A person who fixed forward instead clears the rollback decision with one more smoke
+check: on a pass, the next forward step carries the correction —
+`set_deploy_step { release, step: 'monitor', smoke_ok: true, monitor: { started_at,
+window_minutes } }` — then continue Step 4 from its step 2 (the window is already
+entered), and its `done` writes `verdict: 'shipped'`. On a fail the record stays as
+it is.
+
+Under a run there is nobody to tell you which path: raise the stop **Started by a
+run** names, with this text as its `note`, and end the turn. A resume with the
+person's reply re-runs the check once, as that section says.
 
 ## After the deploy
 
@@ -436,4 +560,8 @@ Same rule as deploy mode: `release_get { release }`, read the ship record's
   around them.
 - **An autonomous run waits for a person; a supervised one does not.** The release's
   merge to main follows its policy only for an autonomous run, and a person driving
-  the deploy is never sent to the web for an approval.
+  the deploy is never sent to the web for an approval — unless they opened a runner
+  run on the release that is still open: then Approve merge, or Stop run first.
+- **Under a run, ask nothing at the keyboard.** Each wait on a person is one release
+  stop, then the end of the turn; a smoke failure is recorded and stopped on, never
+  rolled back.
