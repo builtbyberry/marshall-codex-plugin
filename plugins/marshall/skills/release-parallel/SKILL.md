@@ -285,7 +285,8 @@ For each admitted member, in parallel:
    release branch as a **sibling git worktree** — then one beat with the location
    fields. The wave restates none of it, and never issues its own
    `claim_component` — a live re-claim throws `claim_conflict` even for the same
-   holder, so one owner takes the lock and that owner is release-topic. Capture the
+   holder, so one owner takes the lock and that owner is release-topic. This
+   invocation never sets the **"I'm on it"** mark: a wave member is agent work. Capture the
    resulting claim `id` + `fence` and the worktree path.
    - **release-topic stops** → do **not** spawn a subagent for the member. Drop it
      from the wave and carry it into the wave-wide report below as `{ member,
