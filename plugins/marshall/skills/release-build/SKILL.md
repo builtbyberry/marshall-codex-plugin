@@ -575,6 +575,8 @@ or wait for one in the terminal is a stop instead:
   named in the landing report.
 - **`worker_paused`** — say who paused it and when, then end the turn; the run
   resumes it.
+- **Never mark a part under a run.** The **"I'm on it"** mark is a person's; release-topic
+  sets none here.
 
 **Report to the run.** Send
 `mcp__marshall__dispatch_report { member: <your member>, status, note }` at three points,
@@ -728,7 +730,8 @@ confirmed the hold at Step 0 does not claim again. Handle `claim_conflict` /
 `not_startable` as hard stops. Set `in_progress` **only when the part is `open`** —
 skip it when the part is already `in_progress` (`in_progress` → `in_progress` is
 an `invalid_transition`). Then reuse, attach, or create the topic branch as the
-reuse rule picked. Delegated wholesale — no claim logic is restated here. Beat the claim at each step boundary
+reuse rule picked. When a person drives it, release-topic sets the **"I'm on it"** mark
+before the claim, and the claim clears it. Delegated wholesale — no claim logic is restated here. Beat the claim at each step boundary
 through the loop below (see the `heartbeat_claim` note above).
 
 ### Step 2 — Plan the component

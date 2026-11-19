@@ -19,6 +19,8 @@ machines.
   all three.
 - `mcp__marshall__claim_component` — take the lock (returns the claim id + fence), and
   report where the work happens (see **Reporting where you work**).
+- `mcp__marshall__mark_component` — set (or `clear: true`) the **"I'm on it"** mark before a
+  person's fresh claim (see **The "I'm on it" mark**).
 - `mcp__marshall__my_claims` — list **your own** live holds (claim id,
   component, fence, machine, lease). The recovery surface after context
   compaction — see **Recovering a lost claim** below.
@@ -113,9 +115,11 @@ by `-`. The main checkout is
 ## Procedure
 
 1. Identify the component (by tracker ref or title). If unclear, run
-   `$release-next` first and let the user pick. Then decide where the
+   `$release-next` first and let the user pick. Once the part is confirmed
+   startable, set the mark — only when all three conditions in **The "I'm on it"
+   mark** below hold: `mcp__marshall__mark_component { component }`. Then decide where the
    work happens (**the reuse rule** above) — checks only, no branch or worktree
-   yet. A (b′) is a stop before any claim.
+   yet. A (b′) is a stop before any claim. On that stop, clear the mark you set.
 2. Take the claim (**Taking the claim** below). Pass the location fields; include
    `worktree` now only when you already work in that folder — case (a), or (b)/(c)
    outside worktree mode:
@@ -128,6 +132,7 @@ by `-`. The main checkout is
    - **`agent_not_allowed`**, **`agent_cap_reached`** or **`worker_paused`** → the
      autonomy rules or the kill switch refused the claim. Stop and say which, as
      **Autonomy — the claim's mode and the refusals** below says.
+   - On any of these stops, clear the mark you set in step 1.
    - Read the claim's **`mode`** from the answer — `autonomous` or `supervised` — and
      say which you hold. It decides what the rest of the work may do on its own.
 3. Only after a successful claim (or on finding you still hold it), mark the work
@@ -187,6 +192,29 @@ by `-`. The main checkout is
 
      Never decompose a rejected batch into singular calls.
 6. Then release the lock (`$release-unclaim` or `mcp__marshall__release_claim`).
+
+## The "I'm on it" mark
+
+The mark tells the release runner and the background picker that a person is about
+to start the part, so they leave it alone. Set it in step 1, before the reuse-rule
+checks and the claim, with `mcp__marshall__mark_component { component }` — only when all
+three hold:
+
+- **A fresh claim.** `mcp__marshall__my_claims { release }` does not list the part. The
+  continuing path — a hold your actor already has — never marks.
+- **Startable for a person.** The part's own `startable_reason` in
+  `mcp__marshall__release_get { release, view: "full" }` is `null`. It reads `in_run` for a
+  part a runner run has admitted and `held` for a held one: do not mark either. Never
+  read this from the bounded `dispatch_runs` list.
+- **Not a wave member.** `$release-parallel` did not invoke this procedure.
+  A wave member is agent work.
+
+Never mark from an unattended run. The claim that follows clears the mark: it is
+the marking person's own supervised claim. If the procedure stops before its claim
+succeeds — the reuse rule's (b′), `claim_conflict`, `not_startable`, an autonomy
+refusal — clear the mark you set: `mcp__marshall__mark_component { component, clear: true }`.
+A refused or unknown tool (an older store) is ignored: say so in one line and carry
+on. It never stops the start.
 
 ## Taking the claim — fresh, continuing, or lapsed
 
